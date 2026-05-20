@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { chromium } from "playwright";
 import { getChromiumLaunchOptions } from "@/lib/crawler/browser";
-import { extractMeaningfulText } from "@/lib/crawler/text";
+import { extractMeaningfulText, extractPageTitle } from "@/lib/crawler/text";
 
 export type ScrapedPage = {
   requestedUrl: string;
@@ -15,6 +14,7 @@ export type ScrapedPage = {
 };
 
 const blockedResourceTypes = new Set(["font", "image", "media"]);
+const fetchTimeoutMs = 20000;
 
 export function hashText(value: string) {
   return createHash("sha256").update(value).digest("hex");
@@ -33,11 +33,58 @@ function failedScrape(url: string, error: unknown): ScrapedPage {
   };
 }
 
-export async function scrapePages(urls: string[]): Promise<ScrapedPage[]> {
+function browserFallbackEnabled() {
+  if (process.env.LAUNCHRADAR_BROWSER_FALLBACK === "1") {
+    return true;
+  }
+
+  return (
+    process.env.NODE_ENV !== "production" &&
+    process.env.LAUNCHRADAR_BROWSER_FALLBACK !== "0"
+  );
+}
+
+async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        accept: "text/html,application/xhtml+xml",
+        "user-agent":
+          "Mozilla/5.0 (compatible; LaunchRadar/0.1; +https://launchradar.local)",
+      },
+    });
+    const html = await response.text();
+    const rawText = extractMeaningfulText(html);
+    const status = response.status;
+
+    return {
+      requestedUrl: url,
+      finalUrl: response.url || url,
+      title: extractPageTitle(html),
+      status,
+      ok: response.ok && rawText.length > 0,
+      rawText,
+      hash: hashText(rawText),
+      ...(rawText ? {} : { error: "No meaningful text extracted." }),
+    };
+  } catch (error) {
+    return failedScrape(url, error);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
   if (!urls.length) {
     return [];
   }
 
+  const { chromium } = await import("playwright");
   const browser = await chromium.launch(getChromiumLaunchOptions());
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
@@ -100,4 +147,44 @@ export async function scrapePages(urls: string[]): Promise<ScrapedPage[]> {
   }
 
   return results;
+}
+
+export async function scrapePages(urls: string[]): Promise<ScrapedPage[]> {
+  if (!urls.length) {
+    return [];
+  }
+
+  const fetchResults = await Promise.all(urls.map(scrapePageWithFetch));
+  const urlsNeedingBrowser = fetchResults
+    .filter((result) => !result.ok)
+    .map((result) => result.requestedUrl);
+
+  if (!urlsNeedingBrowser.length || !browserFallbackEnabled()) {
+    return fetchResults;
+  }
+
+  try {
+    const browserResults = await scrapePagesWithBrowser(urlsNeedingBrowser);
+    const browserByUrl = new Map(
+      browserResults.map((result) => [result.requestedUrl, result]),
+    );
+
+    return fetchResults.map((result) => {
+      const browserResult = browserByUrl.get(result.requestedUrl);
+
+      return browserResult?.ok ? browserResult : result;
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Browser fallback failed.";
+
+    return fetchResults.map((result) =>
+      urlsNeedingBrowser.includes(result.requestedUrl)
+        ? {
+            ...result,
+            error: `${result.error ?? "Fetch scrape failed."} Browser fallback failed: ${message}`,
+          }
+        : result,
+    );
+  }
 }

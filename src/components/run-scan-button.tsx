@@ -14,6 +14,28 @@ type ScanResult = {
   failed: number;
 };
 
+async function readScanPayload(response: Response) {
+  const text = await response.text();
+
+  if (!text) {
+    return {
+      error: response.ok
+        ? undefined
+        : `Scan failed with status ${response.status}.`,
+    };
+  }
+
+  try {
+    return JSON.parse(text) as Partial<ScanResult> & { error?: string };
+  } catch {
+    return {
+      error: response.ok
+        ? "Scan returned an unreadable response."
+        : text.slice(0, 240),
+    };
+  }
+}
+
 export function RunScanButton() {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -27,9 +49,7 @@ export function RunScanButton() {
       const response = await fetch("/api/scan", {
         method: "POST",
       });
-      const payload = (await response.json()) as Partial<ScanResult> & {
-        error?: string;
-      };
+      const payload = await readScanPayload(response);
 
       if (!response.ok) {
         throw new Error(payload.error ?? "Scan failed.");

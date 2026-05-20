@@ -105,3 +105,9 @@ export function extractMeaningfulText(html: string) {
 
   return segments.join("\n").trim();
 }
+
+export function extractPageTitle(html: string) {
+  const $ = cheerio.load(html);
+
+  return $("title").first().text().replace(/\s+/g, " ").trim();
+}
