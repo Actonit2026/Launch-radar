@@ -66,6 +66,17 @@ This phase adds:
 
 Set `OPENAI_API_KEY` and optionally `OPENAI_SUMMARY_MODEL` to enable AI summaries.
 
+## Phase 7
+
+This phase adds:
+
+- First-scan intelligence snapshot generation
+- Baseline snapshots without detected-change records
+- No alert emails during the first baseline scan
+- Competitor scan status fields for setup/ready/failed states
+
+Run `supabase/migrations/0004_intelligence_snapshots.sql` to persist intelligence snapshots and scan status in Supabase.
+
 ## Local Setup
 
 1. Copy `.env.example` to `.env.local`.

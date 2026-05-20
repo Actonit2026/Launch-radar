@@ -8,10 +8,16 @@ import {
   OPENAI_NOT_CONFIGURED_ERROR,
   summarizeChange,
 } from "@/lib/ai/change-summary";
+import { summarizeIntelligence } from "@/lib/ai/intelligence-summary";
 import { discoverCompetitorPages } from "@/lib/crawler/discovery";
 import { scrapePages, type ScrapedPage } from "@/lib/crawler/scraper";
 import { detectTextDiff } from "@/lib/diff-engine";
 import { formatDatabaseError } from "@/lib/errors";
+import { analyzePageIntelligence } from "@/lib/intelligence/analyze";
+import {
+  saveCompetitorIntelligenceSnapshot,
+  updateCompetitorScanStatus,
+} from "@/lib/intelligence/persistence";
 import {
   notificationForPage,
   sendChangeNotification,
@@ -65,6 +71,15 @@ function scrapeFailureMessage(scrape: ScrapedPage | undefined) {
   }
 
   return "No meaningful text extracted.";
+}
+
+function isOptionalIntelligencePersistenceError(error: string | null) {
+  return Boolean(
+    error &&
+      /competitor_intelligence_snapshots|scan_status|last_scan_at|last_scan_error|schema cache/i.test(
+        error,
+      ),
+  );
 }
 
 async function latestSnapshot(supabase: Supabase, monitoredPageId: string) {
@@ -171,16 +186,23 @@ export async function createInitialMonitoringSetup(
   supabase: Supabase,
   competitorId: string,
   baseUrl: string,
-  options?: { submittedPageUrl?: string },
+  options?: { competitorName?: string; submittedPageUrl?: string },
 ): Promise<
   ScannerResult<{
     pagesCreated: number;
     snapshotsCreated: number;
+    intelligenceSnapshotCreated: boolean;
     crawlWarning?: string;
   }>
 > {
   let discoveredPages: Awaited<ReturnType<typeof discoverCompetitorPages>> = [];
   let crawlWarning: string | undefined;
+
+  await updateCompetitorScanStatus({
+    supabase,
+    competitorId,
+    status: "running",
+  });
 
   try {
     discoveredPages = await discoverCompetitorPages(baseUrl, {
@@ -208,10 +230,18 @@ export async function createInitialMonitoringSetup(
     .select("*");
 
   if (pagesError) {
+    await updateCompetitorScanStatus({
+      supabase,
+      competitorId,
+      status: "failed",
+      error: pagesError.message,
+    });
+
     return { data: null, error: pagesError.message };
   }
 
   let snapshotsCreated = 0;
+  let intelligenceSnapshotCreated = false;
 
   for (const monitoredPage of monitoredPages ?? []) {
     const scrape = discoveredByPageType.get(monitoredPage.page_type)?.scrape;
@@ -229,10 +259,50 @@ export async function createInitialMonitoringSetup(
     }
   }
 
+  const intelligencePages = discoveredPages
+    .filter((page) => page.scrape.ok && page.scrape.rawText)
+    .map((page) =>
+      analyzePageIntelligence({
+        pageType: page.pageType,
+        scrape: page.scrape,
+      }),
+    );
+  const intelligenceSummary = await summarizeIntelligence({
+    competitorName: options?.competitorName ?? "Tracked competitor",
+    pages: intelligencePages,
+  });
+  const intelligenceError = await saveCompetitorIntelligenceSnapshot({
+    supabase,
+    competitorId,
+    pages: intelligencePages,
+    summary: intelligenceSummary,
+  });
+
+  intelligenceSnapshotCreated = !intelligenceError;
+
+  if (
+    intelligenceError &&
+    !isOptionalIntelligencePersistenceError(intelligenceError) &&
+    !crawlWarning
+  ) {
+    crawlWarning = intelligenceError;
+  }
+
+  const firstScanFailed = snapshotsCreated === 0 && intelligencePages.length === 0;
+  await updateCompetitorScanStatus({
+    supabase,
+    competitorId,
+    status: firstScanFailed ? "failed" : "ready",
+    error: firstScanFailed
+      ? crawlWarning ?? "No useful public pages found."
+      : null,
+  });
+
   return {
     data: {
       pagesCreated: monitoredPages?.length ?? 0,
       snapshotsCreated,
+      intelligenceSnapshotCreated,
       crawlWarning,
     },
   };

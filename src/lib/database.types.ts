@@ -33,6 +33,9 @@ export type Database = {
           user_id: string;
           name: string;
           base_url: string;
+          scan_status: "pending" | "running" | "ready" | "failed";
+          last_scan_at: string | null;
+          last_scan_error: string | null;
           created_at: string;
         };
         Insert: {
@@ -40,6 +43,9 @@ export type Database = {
           user_id: string;
           name: string;
           base_url: string;
+          scan_status?: "pending" | "running" | "ready" | "failed";
+          last_scan_at?: string | null;
+          last_scan_error?: string | null;
           created_at?: string;
         };
         Update: {
@@ -47,6 +53,9 @@ export type Database = {
           user_id?: string;
           name?: string;
           base_url?: string;
+          scan_status?: "pending" | "running" | "ready" | "failed";
+          last_scan_at?: string | null;
+          last_scan_error?: string | null;
           created_at?: string;
         };
         Relationships: [
@@ -158,6 +167,47 @@ export type Database = {
           },
         ];
       };
+      competitor_intelligence_snapshots: {
+        Row: {
+          id: string;
+          competitor_id: string;
+          summary: Json;
+          facts: Json;
+          analyzed_pages: Json;
+          warnings: string[];
+          source: "openai" | "deterministic";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          competitor_id: string;
+          summary: Json;
+          facts?: Json;
+          analyzed_pages?: Json;
+          warnings?: string[];
+          source?: "openai" | "deterministic";
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          competitor_id?: string;
+          summary?: Json;
+          facts?: Json;
+          analyzed_pages?: Json;
+          warnings?: string[];
+          source?: "openai" | "deterministic";
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "competitor_intelligence_snapshots_competitor_id_fkey";
+            columns: ["competitor_id"];
+            isOneToOne: false;
+            referencedRelation: "competitors";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -175,4 +225,6 @@ export type MonitoredPage =
   Database["public"]["Tables"]["monitored_pages"]["Row"];
 export type DetectedChange =
   Database["public"]["Tables"]["detected_changes"]["Row"];
+export type CompetitorIntelligenceSnapshot =
+  Database["public"]["Tables"]["competitor_intelligence_snapshots"]["Row"];
 export type PageType = Database["public"]["Enums"]["page_type"];

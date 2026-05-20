@@ -107,7 +107,10 @@ export async function createCompetitorAction(
     supabase,
     competitor.id,
     parsed.baseUrl,
-    { submittedPageUrl: parsed.submittedPageUrl },
+    {
+      competitorName: parsed.name,
+      submittedPageUrl: parsed.submittedPageUrl,
+    },
   );
 
   if (setup.error) {
@@ -125,8 +128,13 @@ export async function createCompetitorAction(
   const snapshotMessage = setup.data?.snapshotsCreated
     ? ` Created ${setup.data.snapshotsCreated} baseline snapshots.`
     : "";
+  const intelligenceMessage = setup.data?.intelligenceSnapshotCreated
+    ? " Snapshot ready."
+    : "";
 
-  return { message: `${parsed.name} is now tracked.${snapshotMessage}` };
+  return {
+    message: `${parsed.name} is now tracked.${snapshotMessage}${intelligenceMessage}`,
+  };
 }
 
 export async function deleteCompetitorAction(formData: FormData) {
