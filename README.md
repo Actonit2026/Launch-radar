@@ -59,9 +59,10 @@ Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL` to send real email.
 
 This phase adds:
 
-- OpenAI-powered change summaries through the Responses API
-- Structured JSON output for summary, severity, and why-it-matters
-- Heuristic fallback when `OPENAI_API_KEY` is not configured
+- OpenAI-powered summaries through the Responses API
+- Structured JSON output for verified competitor intelligence
+- Deterministic fallback when `OPENAI_API_KEY` is not configured
+- A rule that OpenAI only receives structured facts with source evidence, not raw page text
 
 Set `OPENAI_API_KEY` and optionally `OPENAI_SUMMARY_MODEL` to enable AI summaries.
 

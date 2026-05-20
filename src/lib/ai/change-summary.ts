@@ -1,7 +1,12 @@
-import OpenAI from "openai";
 import type { DetectedChange, PageType } from "@/lib/database.types";
+import {
+  createOpenAIClient,
+  getOpenAIConfig,
+  OPENAI_NOT_CONFIGURED_ERROR,
+} from "@/lib/ai/config";
 import type { DiffResult } from "@/lib/diff-engine";
 import { formatPageType } from "@/lib/format";
+import type { StructuredFact } from "@/lib/intelligence/types";
 
 type Severity = DetectedChange["severity"];
 
@@ -18,9 +23,10 @@ type SummaryInput = {
   pageType: PageType;
   pageUrl: string;
   diff: DiffResult;
+  facts?: StructuredFact[];
 };
 
-export const OPENAI_NOT_CONFIGURED_ERROR = "OPENAI_API_KEY is not configured.";
+export { OPENAI_NOT_CONFIGURED_ERROR } from "@/lib/ai/config";
 
 const summarySchema = {
   type: "object",
@@ -45,17 +51,6 @@ const summarySchema = {
   },
 } as const;
 
-function getOpenAIConfig() {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_SUMMARY_MODEL ?? "gpt-5.4-mini";
-
-  if (!apiKey) {
-    return null;
-  }
-
-  return { apiKey, model };
-}
-
 function heuristicSummary(diff: DiffResult): ChangeSummary {
   return {
     summary: diff.summary,
@@ -69,8 +64,17 @@ function isSeverity(value: unknown): value is Severity {
   return value === "low" || value === "medium" || value === "high";
 }
 
-function compactLines(lines: string[]) {
-  return lines.slice(0, 8).map((line) => line.slice(0, 220));
+function compactFacts(facts: StructuredFact[]) {
+  return facts.slice(0, 20).map((fact) => ({
+    field: fact.field,
+    value: fact.value,
+    confidence: fact.confidence,
+    confidence_score: fact.confidence_score,
+    source_url: fact.source_url,
+    evidence_text: fact.evidence_text,
+    extraction_method: fact.extraction_method,
+    normalized_value: fact.normalized_value ?? null,
+  }));
 }
 
 function parseSummary(value: string, fallback: ChangeSummary): ChangeSummary {
@@ -114,14 +118,18 @@ export async function summarizeChange(input: SummaryInput) {
     };
   }
 
+  if (!input.facts?.length) {
+    return fallback;
+  }
+
   try {
-    const client = new OpenAI({ apiKey: config.apiKey });
+    const client = createOpenAIClient(config.apiKey);
     const response = await client.responses.create({
       model: config.model,
       instructions: [
-        "Summarize competitor website changes for a SaaS founder.",
-        "Focus on pricing changes, feature launches, positioning changes, CTA changes, and why the founder should care.",
-        "Be concrete. Do not invent details not present in the diff.",
+        "Summarize competitor website changes using only verified structured facts.",
+        "Do not infer, guess, or invent. Every sentence must be supported by the provided source_url and evidence_text fields.",
+        "If facts are missing or weak, say the reliable public data was limited.",
       ].join(" "),
       input: JSON.stringify({
         competitor_name: input.competitorName,
@@ -129,8 +137,7 @@ export async function summarizeChange(input: SummaryInput) {
         page_url: input.pageUrl,
         heuristic_summary: input.diff.summary,
         heuristic_severity: input.diff.severity,
-        additions: compactLines(input.diff.additions),
-        removals: compactLines(input.diff.removals),
+        structured_facts: compactFacts(input.facts),
       }),
       text: {
         format: {
