@@ -9,6 +9,7 @@ export type DashboardCompetitor = Competitor & {
   monitoredPages: MonitoredPage[];
   changeCount: number;
   latestChange: RecentChange | null;
+  lastCheckedAt: string | null;
 };
 
 export type RecentChange = DetectedChange & {
@@ -45,6 +46,15 @@ function sortPages(pages: MonitoredPage[]) {
 
 function isRecentChange(change: RecentChange | null): change is RecentChange {
   return Boolean(change);
+}
+
+function latestCheckedAt(pages: MonitoredPage[]) {
+  const checkedDates = pages
+    .map((page) => page.last_checked_at)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => Date.parse(b) - Date.parse(a));
+
+  return checkedDates[0] ?? null;
 }
 
 export async function getDashboardData(
@@ -156,6 +166,7 @@ export async function getDashboardData(
       monitoredPages,
       latestChange,
       changeCount: competitorChangeCount,
+      lastCheckedAt: latestCheckedAt(monitoredPages),
     };
   });
 

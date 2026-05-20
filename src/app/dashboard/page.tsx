@@ -133,6 +133,11 @@ export default async function DashboardPage() {
                     <p className="mt-4 text-sm leading-6 text-ink/70">
                       Latest: {competitor.latestChange.diff_summary}
                     </p>
+                  ) : competitor.lastCheckedAt ? (
+                    <p className="mt-4 text-sm leading-6 text-ink/55">
+                      No changes detected yet. Last scanned{" "}
+                      {formatDateTime(competitor.lastCheckedAt)}.
+                    </p>
                   ) : (
                     <p className="mt-4 text-sm leading-6 text-ink/55">
                       Waiting for the first scan.
