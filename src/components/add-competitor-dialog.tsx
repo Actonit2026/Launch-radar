@@ -92,6 +92,19 @@ export function AddCompetitorDialog() {
                   <p className="text-sm font-medium text-coral">
                     {state.error}
                   </p>
+                ) : isPending ? (
+                  <div className="rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
+                    <p className="font-semibold text-ink">
+                      Setting up your first scan...
+                    </p>
+                    <p>Validating website...</p>
+                    <p>Fetching homepage...</p>
+                    <p>Discovering internal pages...</p>
+                    <p>Finding pricing, features, and update pages...</p>
+                    <p>Extracting verified facts...</p>
+                    <p>Generating intelligence snapshot...</p>
+                    <p>Saving baseline...</p>
+                  </div>
                 ) : null}
               </div>
 
@@ -107,7 +120,7 @@ export function AddCompetitorDialog() {
                   disabled={isPending}
                   className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-ink/90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {isPending ? "Adding..." : "Track pages"}
+                  {isPending ? "Setting up..." : "Track pages"}
                 </button>
               </div>
             </form>

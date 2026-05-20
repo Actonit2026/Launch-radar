@@ -3,11 +3,16 @@ import { redirect } from "next/navigation";
 import { signOutAction } from "@/app/auth/actions";
 import { AddCompetitorDialog } from "@/components/add-competitor-dialog";
 import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
+import { IntelligenceSnapshotPanel } from "@/components/intelligence-snapshot-panel";
 import { RunScanButton } from "@/components/run-scan-button";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
-import { getDashboardData } from "@/lib/competitors";
+import {
+  getDashboardData,
+  type DashboardCompetitor,
+} from "@/lib/competitors";
 import { formatDateTime, formatPageType, severityClassName } from "@/lib/format";
+import { buildIntelligenceDisplay } from "@/lib/intelligence/display";
 import {
   isSupabaseConfigured,
   supabaseConfigMessage,
@@ -18,6 +23,26 @@ export const dynamic = "force-dynamic";
 export const metadata = {
   title: "Dashboard | LaunchRadar",
 };
+
+function setupStatusText(competitor: DashboardCompetitor) {
+  if (competitor.scan_status === "failed") {
+    return `Scan failed. ${
+      competitor.last_scan_error ?? "Retry when the website is reachable."
+    }`;
+  }
+
+  if (competitor.scan_status === "running") {
+    return "Setting up your first scan...";
+  }
+
+  if (competitor.lastCheckedAt) {
+    return `Baseline created. Last scanned ${formatDateTime(
+      competitor.lastCheckedAt,
+    )}. Snapshot pending.`;
+  }
+
+  return "Setting up your first scan...";
+}
 
 export default async function DashboardPage() {
   if (!isSupabaseConfigured()) {
@@ -94,64 +119,75 @@ export default async function DashboardPage() {
           {data?.competitors.length ? (
             <div className="mt-5 space-y-4">
               {data.competitors.map((competitor) => (
-                <article
-                  key={competitor.id}
-                  className="rounded-md border border-ink/10 p-4"
-                >
-                  <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
-                    <div className="min-w-0">
-                      <Link
-                        href={`/dashboard/competitors/${competitor.id}`}
-                        className="text-lg font-semibold text-ink transition hover:text-moss"
-                      >
-                        {competitor.name}
-                      </Link>
-                      <a
-                        href={competitor.base_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-1 block truncate text-sm text-ink/60 transition hover:text-ink"
-                      >
-                        {competitor.base_url}
-                      </a>
-                    </div>
-                    <DeleteCompetitorButton competitorId={competitor.id} />
-                  </div>
+                (() => {
+                  const intelligence = buildIntelligenceDisplay(
+                    competitor.latestIntelligence,
+                  );
 
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {competitor.monitoredPages.map((page) => (
-                      <span
-                        key={page.id}
-                        className="rounded-full bg-paper px-3 py-1 text-xs font-semibold text-ink/65"
-                      >
-                        {formatPageType(page.page_type)}
-                      </span>
-                    ))}
-                  </div>
+                  return (
+                    <article
+                      key={competitor.id}
+                      className="rounded-md border border-ink/10 p-4"
+                    >
+                      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                        <div className="min-w-0">
+                          <Link
+                            href={`/dashboard/competitors/${competitor.id}`}
+                            className="text-lg font-semibold text-ink transition hover:text-moss"
+                          >
+                            {competitor.name}
+                          </Link>
+                          <a
+                            href={competitor.base_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-1 block truncate text-sm text-ink/60 transition hover:text-ink"
+                          >
+                            {competitor.base_url}
+                          </a>
+                        </div>
+                        <DeleteCompetitorButton competitorId={competitor.id} />
+                      </div>
 
-                  {competitor.latestChange ? (
-                    <p className="mt-4 text-sm leading-6 text-ink/70">
-                      Latest: {competitor.latestChange.diff_summary}
-                    </p>
-                  ) : competitor.lastCheckedAt ? (
-                    <p className="mt-4 text-sm leading-6 text-ink/55">
-                      No changes detected yet. Last scanned{" "}
-                      {formatDateTime(competitor.lastCheckedAt)}.
-                    </p>
-                  ) : (
-                    <p className="mt-4 text-sm leading-6 text-ink/55">
-                      Waiting for the first scan.
-                    </p>
-                  )}
-                </article>
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {competitor.monitoredPages.map((page) => (
+                          <span
+                            key={page.id}
+                            className="rounded-full bg-paper px-3 py-1 text-xs font-semibold text-ink/65"
+                          >
+                            {formatPageType(page.page_type)}
+                          </span>
+                        ))}
+                      </div>
+
+                      {intelligence ? (
+                        <IntelligenceSnapshotPanel
+                          display={intelligence}
+                          compact
+                        />
+                      ) : (
+                        <p className="mt-4 text-sm leading-6 text-ink/55">
+                          {setupStatusText(competitor)}
+                        </p>
+                      )}
+
+                      {competitor.latestChange ? (
+                        <p className="mt-4 border-t border-ink/10 pt-4 text-sm leading-6 text-ink/70">
+                          Latest confirmed change:{" "}
+                          {competitor.latestChange.diff_summary}
+                        </p>
+                      ) : null}
+                    </article>
+                  );
+                })()
               ))}
             </div>
           ) : (
             <div className="mt-5 rounded-md bg-paper p-5">
               <h3 className="font-semibold text-ink">No competitors yet</h3>
               <p className="mt-2 text-sm leading-6 text-ink/65">
-                Add a competitor URL to create default homepage, pricing,
-                features, and changelog trackers.
+                Add a competitor URL to discover public pages, create a
+                baseline, and generate the first verified snapshot.
               </p>
             </div>
           )}
@@ -196,8 +232,8 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <p className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-              Change history will appear here after the crawler and diff engine
-              start writing detected changes.
+              Future confirmed website changes will appear here after a later
+              scan finds a real difference from the baseline.
             </p>
           )}
         </div>

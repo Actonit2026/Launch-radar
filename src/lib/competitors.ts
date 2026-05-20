@@ -1,7 +1,16 @@
 import type { User } from "@supabase/supabase-js";
-import type { Competitor, DetectedChange, MonitoredPage } from "@/lib/database.types";
+import type {
+  Competitor,
+  CompetitorIntelligenceSnapshot,
+  DetectedChange,
+  MonitoredPage,
+} from "@/lib/database.types";
 import { formatDatabaseError } from "@/lib/errors";
 import { formatPageOrder } from "@/lib/format";
+import {
+  parseIntelligenceSnapshot,
+  type IntelligenceSnapshotView,
+} from "@/lib/intelligence/display";
 import { ensureUserProfile } from "@/lib/profiles";
 import { createClient } from "@/lib/supabase/server";
 
@@ -10,6 +19,7 @@ export type DashboardCompetitor = Competitor & {
   changeCount: number;
   latestChange: RecentChange | null;
   lastCheckedAt: string | null;
+  latestIntelligence: IntelligenceSnapshotView | null;
 };
 
 export type RecentChange = DetectedChange & {
@@ -31,6 +41,7 @@ export type CompetitorDetail = {
   competitor: Competitor;
   pages: MonitoredPage[];
   changes: Array<DetectedChange & { page: MonitoredPage }>;
+  latestIntelligence: IntelligenceSnapshotView | null;
 };
 
 type DataResult<T> = {
@@ -55,6 +66,20 @@ function latestCheckedAt(pages: MonitoredPage[]) {
     .sort((a, b) => Date.parse(b) - Date.parse(a));
 
   return checkedDates[0] ?? null;
+}
+
+function latestSnapshotsByCompetitor(
+  snapshots: CompetitorIntelligenceSnapshot[],
+) {
+  const latestByCompetitor = new Map<string, CompetitorIntelligenceSnapshot>();
+
+  for (const snapshot of snapshots) {
+    if (!latestByCompetitor.has(snapshot.competitor_id)) {
+      latestByCompetitor.set(snapshot.competitor_id, snapshot);
+    }
+  }
+
+  return latestByCompetitor;
 }
 
 export async function getDashboardData(
@@ -119,11 +144,31 @@ export async function getDashboardData(
     };
   }
 
+  const { data: intelligenceSnapshots, error: intelligenceError } =
+    competitorIds.length
+      ? await supabase
+          .from("competitor_intelligence_snapshots")
+          .select("*")
+          .in("competitor_id", competitorIds)
+          .order("created_at", { ascending: false })
+          .limit(100)
+      : { data: [], error: null };
+
+  if (intelligenceError) {
+    return {
+      data: null,
+      error: formatDatabaseError(intelligenceError.message),
+    };
+  }
+
   const competitorById = new Map(
     competitorRows.map((competitor) => [competitor.id, competitor]),
   );
   const pageById = new Map(pageRows.map((page) => [page.id, page]));
   const pagesByCompetitor = new Map<string, MonitoredPage[]>();
+  const latestIntelligenceByCompetitor = latestSnapshotsByCompetitor(
+    intelligenceSnapshots ?? [],
+  );
 
   for (const page of pageRows) {
     const group = pagesByCompetitor.get(page.competitor_id) ?? [];
@@ -167,6 +212,9 @@ export async function getDashboardData(
       latestChange,
       changeCount: competitorChangeCount,
       lastCheckedAt: latestCheckedAt(monitoredPages),
+      latestIntelligence: parseIntelligenceSnapshot(
+        latestIntelligenceByCompetitor.get(competitor.id),
+      ),
     };
   });
 
@@ -246,11 +294,24 @@ export async function getCompetitorDetail(
       } => Boolean(change),
     );
 
+  const { data: intelligenceSnapshot, error: intelligenceError } = await supabase
+    .from("competitor_intelligence_snapshots")
+    .select("*")
+    .eq("competitor_id", competitor.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (intelligenceError) {
+    return { data: null, error: formatDatabaseError(intelligenceError.message) };
+  }
+
   return {
     data: {
       competitor,
       pages: pageRows,
       changes: changesWithPages,
+      latestIntelligence: parseIntelligenceSnapshot(intelligenceSnapshot),
     },
   };
 }

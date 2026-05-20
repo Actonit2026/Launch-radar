@@ -2,11 +2,13 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { signOutAction } from "@/app/auth/actions";
 import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
+import { IntelligenceSnapshotPanel } from "@/components/intelligence-snapshot-panel";
 import { RunScanButton } from "@/components/run-scan-button";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
 import { formatDateTime, formatPageType, severityClassName } from "@/lib/format";
 import { getCompetitorDetail } from "@/lib/competitors";
+import { buildIntelligenceDisplay } from "@/lib/intelligence/display";
 import {
   isSupabaseConfigured,
   supabaseConfigMessage,
@@ -23,6 +25,13 @@ type CompetitorDetailPageProps = {
     id: string;
   }>;
 };
+
+function latestCheckedAt(pages: { last_checked_at: string | null }[]) {
+  return pages
+    .map((page) => page.last_checked_at)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+}
 
 export default async function CompetitorDetailPage({
   params,
@@ -48,7 +57,21 @@ export default async function CompetitorDetailPage({
     notFound();
   }
 
-  const { competitor, pages, changes } = result.data;
+  const { competitor, pages, changes, latestIntelligence } = result.data;
+  const intelligence = buildIntelligenceDisplay(latestIntelligence);
+  const latestPageCheck = latestCheckedAt(pages);
+  const setupStatus =
+    competitor.scan_status === "failed"
+      ? `Scan failed. ${
+          competitor.last_scan_error ?? "Retry when the website is reachable."
+        }`
+      : competitor.scan_status === "running"
+        ? "Setting up your first scan..."
+        : latestPageCheck
+          ? `Baseline created. Last scanned ${formatDateTime(
+              latestPageCheck,
+            )}. Snapshot pending.`
+          : "Setting up your first scan...";
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-5xl flex-col gap-8 px-6 py-10">
@@ -87,6 +110,32 @@ export default async function CompetitorDetailPage({
             </button>
           </form>
         </div>
+      </section>
+
+      <section className="rounded-lg border border-ink/10 bg-white p-5">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">
+              Verified intelligence
+            </h2>
+            <p className="mt-1 text-sm leading-6 text-ink/55">
+              Evidence-backed facts from the latest baseline snapshot.
+            </p>
+          </div>
+          {latestPageCheck ? (
+            <span className="rounded-full bg-paper px-3 py-1 text-xs font-semibold text-ink/55">
+              Last scan {formatDateTime(latestPageCheck)}
+            </span>
+          ) : null}
+        </div>
+
+        {intelligence ? (
+          <IntelligenceSnapshotPanel display={intelligence} />
+        ) : (
+          <p className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
+            {setupStatus}
+          </p>
+        )}
       </section>
 
       <section className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
@@ -139,7 +188,7 @@ export default async function CompetitorDetailPage({
                       {change.severity}
                     </span>
                     <span className="text-xs text-ink/45">
-                      {formatPageType(change.page.page_type)} ·{" "}
+                      {formatPageType(change.page.page_type)} -{" "}
                       {formatDateTime(change.created_at)}
                     </span>
                   </div>
@@ -151,8 +200,8 @@ export default async function CompetitorDetailPage({
             </div>
           ) : (
             <p className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-              No changes detected yet. Phase 3 adds crawling, and Phase 4 adds
-              diff detection.
+              Future confirmed website changes will appear here after a later
+              scan finds a real difference from the baseline.
             </p>
           )}
         </div>
