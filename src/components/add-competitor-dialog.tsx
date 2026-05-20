@@ -78,8 +78,11 @@ export function AddCompetitorDialog() {
                 <input
                   required
                   name="baseUrl"
-                  type="url"
-                  placeholder="https://competitor.com"
+                  type="text"
+                  inputMode="url"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  placeholder="example.com or example.com/pricing"
                   className="mt-2 h-12 w-full rounded-md border border-ink/15 bg-white px-3 text-base text-ink transition placeholder:text-ink/35 focus:border-moss"
                 />
               </label>

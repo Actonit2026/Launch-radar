@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { createInitialMonitoringSetup } from "@/lib/scanner";
-import { normalizeBaseUrl } from "@/lib/urls";
+import { parseCompetitorUrl } from "@/lib/urls";
 import { ensureUserProfile } from "@/lib/profiles";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -19,10 +19,11 @@ export type CompetitorFormState = {
 
 type ParsedCompetitorForm =
   | {
-      name: string;
-      baseUrl: string;
-      error?: never;
-    }
+    name: string;
+    baseUrl: string;
+    submittedPageUrl?: string;
+    error?: never;
+  }
   | {
       error: string;
       name?: never;
@@ -38,13 +39,18 @@ function readCompetitorForm(formData: FormData): ParsedCompetitorForm {
   }
 
   try {
-    const baseUrl = normalizeBaseUrl(rawUrl);
+    const parsedUrl = parseCompetitorUrl(rawUrl);
+    const baseUrl = parsedUrl.baseUrl;
     const hostname = new URL(baseUrl).hostname.replace(/^www\./, "");
     const name = rawName || hostname;
 
-    return { name, baseUrl };
+    return {
+      name,
+      baseUrl,
+      submittedPageUrl: parsedUrl.submittedPageUrl,
+    };
   } catch {
-    return { error: "Enter a valid http or https URL." };
+    return { error: "Enter a valid website URL." };
   }
 }
 
@@ -101,6 +107,7 @@ export async function createCompetitorAction(
     supabase,
     competitor.id,
     parsed.baseUrl,
+    { submittedPageUrl: parsed.submittedPageUrl },
   );
 
   if (setup.error) {

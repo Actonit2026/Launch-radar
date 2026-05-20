@@ -171,6 +171,7 @@ export async function createInitialMonitoringSetup(
   supabase: Supabase,
   competitorId: string,
   baseUrl: string,
+  options?: { submittedPageUrl?: string },
 ): Promise<
   ScannerResult<{
     pagesCreated: number;
@@ -182,7 +183,9 @@ export async function createInitialMonitoringSetup(
   let crawlWarning: string | undefined;
 
   try {
-    discoveredPages = await discoverCompetitorPages(baseUrl);
+    discoveredPages = await discoverCompetitorPages(baseUrl, {
+      submittedPageUrl: options?.submittedPageUrl,
+    });
   } catch (error) {
     crawlWarning =
       error instanceof Error ? error.message : "Could not crawl competitor.";

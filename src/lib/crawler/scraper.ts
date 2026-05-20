@@ -1,15 +1,23 @@
 import { createHash } from "node:crypto";
 import { getChromiumLaunchOptions } from "@/lib/crawler/browser";
-import { extractMeaningfulText, extractPageTitle } from "@/lib/crawler/text";
+import {
+  extractMeaningfulText,
+  extractMetaDescription,
+  extractPageLinks,
+  extractPageTitle,
+  type PageLink,
+} from "@/lib/crawler/text";
 
 export type ScrapedPage = {
   requestedUrl: string;
   finalUrl: string;
   title: string;
+  metaDescription: string;
   status: number | null;
   ok: boolean;
   rawText: string;
   hash: string;
+  links: PageLink[];
   error?: string;
 };
 
@@ -25,10 +33,12 @@ function failedScrape(url: string, error: unknown): ScrapedPage {
     requestedUrl: url,
     finalUrl: url,
     title: "",
+    metaDescription: "",
     status: null,
     ok: false,
     rawText: "",
     hash: hashText(""),
+    links: [],
     error: error instanceof Error ? error.message : "Unknown scrape error.",
   };
 }
@@ -59,17 +69,20 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
       },
     });
     const html = await response.text();
+    const finalUrl = response.url || url;
     const rawText = extractMeaningfulText(html);
     const status = response.status;
 
     return {
       requestedUrl: url,
-      finalUrl: response.url || url,
+      finalUrl,
       title: extractPageTitle(html),
+      metaDescription: extractMetaDescription(html),
       status,
       ok: response.ok && rawText.length > 0,
       rawText,
       hash: hashText(rawText),
+      links: extractPageLinks(html, finalUrl),
       ...(rawText ? {} : { error: "No meaningful text extracted." }),
     };
   } catch (error) {
@@ -124,17 +137,20 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
           .catch(() => undefined);
 
         const html = await page.content();
+        const finalUrl = page.url();
         const rawText = extractMeaningfulText(html);
         const status = response?.status() ?? null;
 
         results.push({
           requestedUrl: url,
-          finalUrl: page.url(),
+          finalUrl,
           title: await page.title(),
+          metaDescription: extractMetaDescription(html),
           status,
           ok: (status === null || status < 400) && rawText.length > 0,
           rawText,
           hash: hashText(rawText),
+          links: extractPageLinks(html, finalUrl),
         });
       } catch (error) {
         results.push(failedScrape(url, error));
