@@ -4,7 +4,9 @@ begin
     'homepage',
     'pricing',
     'features',
-    'changelog'
+    'product',
+    'changelog',
+    'docs'
   );
 exception
   when duplicate_object then null;

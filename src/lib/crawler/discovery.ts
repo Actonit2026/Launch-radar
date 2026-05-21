@@ -263,10 +263,10 @@ function storagePageType(pageType: CandidatePageType): PageType | null {
     case "homepage":
     case "pricing":
     case "features":
-    case "changelog":
-      return pageType;
     case "product":
-      return "features";
+    case "changelog":
+    case "docs":
+      return pageType;
     default:
       return null;
   }
@@ -437,7 +437,9 @@ function bestDiscoveredPages(
     }
   }
 
-  return (["homepage", "pricing", "features", "changelog"] as PageType[])
+  return (
+    ["homepage", "pricing", "features", "product", "changelog", "docs"] as PageType[]
+  )
     .map((pageType) => bestByPageType.get(pageType))
     .filter((page): page is DiscoveredPage => Boolean(page));
 }

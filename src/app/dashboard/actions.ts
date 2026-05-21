@@ -3,8 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { createInitialMonitoringSetup } from "@/lib/scanner";
-import { parseCompetitorUrl } from "@/lib/urls";
+import {
+  createInitialMonitoringSetup,
+  rerunCompetitorIntelligence,
+} from "@/lib/scanner";
+import {
+  isManualPageType,
+  parseCompetitorUrl,
+  parseManualPageUrl,
+} from "@/lib/urls";
 import { ensureUserProfile } from "@/lib/profiles";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -13,6 +20,11 @@ import {
 } from "@/lib/supabase/config";
 
 export type CompetitorFormState = {
+  error?: string;
+  message?: string;
+};
+
+export type ManualPageFormState = {
   error?: string;
   message?: string;
 };
@@ -56,6 +68,33 @@ function readCompetitorForm(formData: FormData): ParsedCompetitorForm {
 
 function isDuplicateError(code?: string) {
   return code === "23505";
+}
+
+async function getOwnedCompetitor(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  competitorId: string,
+) {
+  if (!competitorId) {
+    return { competitor: null, error: "Competitor is required." };
+  }
+
+  const { data: competitor, error } = await supabase
+    .from("competitors")
+    .select("id, name, base_url")
+    .eq("id", competitorId)
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) {
+    return { competitor: null, error: error.message };
+  }
+
+  if (!competitor) {
+    return { competitor: null, error: "Competitor not found." };
+  }
+
+  return { competitor, error: null };
 }
 
 export async function createCompetitorAction(
@@ -162,4 +201,142 @@ export async function deleteCompetitorAction(formData: FormData) {
 
   revalidatePath("/dashboard");
   redirect(redirectTo.startsWith("/") ? redirectTo : "/dashboard");
+}
+
+export async function addManualPageAction(
+  _previousState: ManualPageFormState,
+  formData: FormData,
+): Promise<ManualPageFormState> {
+  if (!isSupabaseConfigured()) {
+    return { error: supabaseConfigMessage };
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { error: "Sign in before adding a page." };
+  }
+
+  const competitorId = String(formData.get("competitorId") ?? "");
+  const rawPageType = String(formData.get("pageType") ?? "");
+  const rawPageUrl = String(formData.get("pageUrl") ?? "");
+
+  if (!isManualPageType(rawPageType)) {
+    return { error: "Choose a valid page type." };
+  }
+
+  const supabase = await createClient();
+  const profileError = await ensureUserProfile(supabase, user);
+
+  if (profileError) {
+    return { error: profileError };
+  }
+
+  const { competitor, error: competitorError } = await getOwnedCompetitor(
+    supabase,
+    user.id,
+    competitorId,
+  );
+
+  if (competitorError || !competitor) {
+    return { error: competitorError ?? "Competitor not found." };
+  }
+
+  let pageUrl: string;
+
+  try {
+    pageUrl = parseManualPageUrl(rawPageUrl, competitor.base_url);
+  } catch (error) {
+    return {
+      error: error instanceof Error ? error.message : "Enter a valid page URL.",
+    };
+  }
+
+  const { data: monitoredPage, error: pageError } = await supabase
+    .from("monitored_pages")
+    .upsert(
+      {
+        competitor_id: competitor.id,
+        page_type: rawPageType,
+        url: pageUrl,
+        last_checked_at: null,
+      },
+      { onConflict: "competitor_id,page_type" },
+    )
+    .select("id")
+    .single();
+
+  if (pageError) {
+    return { error: pageError.message };
+  }
+
+  const analysis = await rerunCompetitorIntelligence(supabase, {
+    competitorId: competitor.id,
+    competitorName: competitor.name,
+    baselinePageIds: monitoredPage ? [monitoredPage.id] : [],
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/competitors/${competitor.id}`);
+
+  if (analysis.error) {
+    return {
+      error: `Page saved, but re-analysis failed: ${analysis.error}`,
+    };
+  }
+
+  return {
+    message: `Saved ${rawPageType} page and re-ran analysis. Snapshot ready.`,
+  };
+}
+
+export async function rerunCompetitorIntelligenceAction(
+  _previousState: ManualPageFormState,
+  formData: FormData,
+): Promise<ManualPageFormState> {
+  if (!isSupabaseConfigured()) {
+    return { error: supabaseConfigMessage };
+  }
+
+  const user = await getCurrentUser();
+
+  if (!user) {
+    return { error: "Sign in before re-running analysis." };
+  }
+
+  const competitorId = String(formData.get("competitorId") ?? "");
+  const supabase = await createClient();
+  const profileError = await ensureUserProfile(supabase, user);
+
+  if (profileError) {
+    return { error: profileError };
+  }
+
+  const { competitor, error: competitorError } = await getOwnedCompetitor(
+    supabase,
+    user.id,
+    competitorId,
+  );
+
+  if (competitorError || !competitor) {
+    return { error: competitorError ?? "Competitor not found." };
+  }
+
+  const analysis = await rerunCompetitorIntelligence(supabase, {
+    competitorId: competitor.id,
+    competitorName: competitor.name,
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/competitors/${competitor.id}`);
+
+  if (analysis.error) {
+    return { error: analysis.error };
+  }
+
+  return {
+    message: `Re-ran analysis across ${
+      analysis.data?.pagesAnalyzed ?? 0
+    } public pages. Snapshot ready.`,
+  };
 }

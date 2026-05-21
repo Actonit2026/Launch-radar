@@ -364,6 +364,43 @@ function overviewSection(snapshot: IntelligenceSnapshotView): IntelligenceSectio
   return { status: "unavailable", text: LIMITED_DATA_MESSAGE };
 }
 
+function displayWarnings({
+  warnings,
+  pricing,
+  features,
+  changelog,
+}: {
+  warnings: string[];
+  pricing: IntelligenceSectionView;
+  features: { status: "found" | "unavailable" };
+  changelog: IntelligenceSectionView;
+}) {
+  return Array.from(new Set(warnings)).filter((warning) => {
+    if (
+      pricing.status === "found" &&
+      /no public pricing detected/i.test(warning)
+    ) {
+      return false;
+    }
+
+    if (
+      features.status === "found" &&
+      /not enough feature information detected/i.test(warning)
+    ) {
+      return false;
+    }
+
+    if (
+      changelog.status === "found" &&
+      /no changelog\/update page detected/i.test(warning)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
 export function buildIntelligenceDisplay(
   snapshot: IntelligenceSnapshotView | null,
 ): IntelligenceDisplayView | null {
@@ -372,6 +409,22 @@ export function buildIntelligenceDisplay(
   }
 
   const features = featureFacts(snapshot);
+  const pricing = pricingSection(snapshot);
+  const positioning = positioningSection(snapshot);
+  const cta = ctaSection(snapshot);
+  const changelog = changelogSection(snapshot);
+  const featureDisplay =
+    features.length >= 3
+      ? {
+          status: "found" as const,
+          text: "Verified features detected.",
+          facts: features,
+        }
+      : {
+          status: "unavailable" as const,
+          text: "Not enough feature information detected.",
+          facts: [],
+        };
 
   return {
     snapshotId: snapshot.id,
@@ -380,24 +433,16 @@ export function buildIntelligenceDisplay(
     overallConfidence: snapshot.summary.overallConfidence,
     pagesAnalyzed: snapshot.analyzedPages.length,
     overview: overviewSection(snapshot),
-    pricing: pricingSection(snapshot),
-    positioning: positioningSection(snapshot),
-    cta: ctaSection(snapshot),
-    changelog: changelogSection(snapshot),
-    features:
-      features.length >= 3
-        ? {
-            status: "found",
-            text: "Verified features detected.",
-            facts: features,
-          }
-        : {
-            status: "unavailable",
-            text: "Not enough feature information detected.",
-            facts: [],
-          },
-    warnings: Array.from(
-      new Set([...snapshot.warnings, ...snapshot.summary.warnings]),
-    ),
+    pricing,
+    positioning,
+    cta,
+    changelog,
+    features: featureDisplay,
+    warnings: displayWarnings({
+      warnings: [...snapshot.warnings, ...snapshot.summary.warnings],
+      pricing,
+      features: featureDisplay,
+      changelog,
+    }),
   };
 }

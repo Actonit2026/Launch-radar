@@ -3,12 +3,16 @@ import { notFound, redirect } from "next/navigation";
 import { signOutAction } from "@/app/auth/actions";
 import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
 import { IntelligenceSnapshotPanel } from "@/components/intelligence-snapshot-panel";
+import { ManualPageOverrideForm } from "@/components/manual-page-override-form";
 import { RunScanButton } from "@/components/run-scan-button";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
 import { formatDateTime, formatPageType, severityClassName } from "@/lib/format";
 import { getCompetitorDetail } from "@/lib/competitors";
-import { buildIntelligenceDisplay } from "@/lib/intelligence/display";
+import {
+  buildIntelligenceDisplay,
+  type IntelligenceDisplayView,
+} from "@/lib/intelligence/display";
 import {
   isSupabaseConfigured,
   supabaseConfigMessage,
@@ -31,6 +35,26 @@ function latestCheckedAt(pages: { last_checked_at: string | null }[]) {
     .map((page) => page.last_checked_at)
     .filter((value): value is string => Boolean(value))
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+}
+
+function manualHelpActions(display: IntelligenceDisplayView | null) {
+  if (!display) {
+    return [
+      "Add a pricing, product, docs, or changelog page if discovery needs help.",
+    ];
+  }
+
+  return [
+    ...(display.pricing.status !== "found"
+      ? ["We could not confidently find a pricing page. Add pricing page URL."]
+      : []),
+    ...(display.changelog.status !== "found"
+      ? ["No changelog detected. Add updates/changelog page manually."]
+      : []),
+    ...(display.features.status !== "found"
+      ? ["Feature information was limited. Add product/features page."]
+      : []),
+  ];
 }
 
 export default async function CompetitorDetailPage({
@@ -60,6 +84,7 @@ export default async function CompetitorDetailPage({
   const { competitor, pages, changes, latestIntelligence } = result.data;
   const intelligence = buildIntelligenceDisplay(latestIntelligence);
   const latestPageCheck = latestCheckedAt(pages);
+  const helpActions = manualHelpActions(intelligence);
   const setupStatus =
     competitor.scan_status === "failed"
       ? `Scan failed. ${
@@ -136,6 +161,27 @@ export default async function CompetitorDetailPage({
             {setupStatus}
           </p>
         )}
+      </section>
+
+      <section className="rounded-lg border border-ink/10 bg-white p-5">
+        <h2 className="text-lg font-semibold text-ink">
+          Manual page fallback
+        </h2>
+        {helpActions.length ? (
+          <div className="mt-3 space-y-2 text-sm leading-6 text-ink/60">
+            {helpActions.map((action) => (
+              <p key={action}>{action}</p>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-3 text-sm leading-6 text-ink/60">
+            Discovery looks healthy. You can still add or replace a page and
+            refresh the verified snapshot.
+          </p>
+        )}
+        <div className="mt-5">
+          <ManualPageOverrideForm competitorId={competitor.id} />
+        </div>
       </section>
 
       <section className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">

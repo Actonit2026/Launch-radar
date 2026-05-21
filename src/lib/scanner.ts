@@ -3,6 +3,7 @@ import type {
   Database,
   DetectedChange,
   MonitoredPage,
+  PageType,
 } from "@/lib/database.types";
 import {
   OPENAI_NOT_CONFIGURED_ERROR,
@@ -14,6 +15,7 @@ import { scrapePages, type ScrapedPage } from "@/lib/crawler/scraper";
 import { detectTextDiff } from "@/lib/diff-engine";
 import { formatDatabaseError } from "@/lib/errors";
 import { analyzePageIntelligence } from "@/lib/intelligence/analyze";
+import type { PageIntelligence } from "@/lib/intelligence/types";
 import {
   saveCompetitorIntelligenceSnapshot,
   updateCompetitorScanStatus,
@@ -182,6 +184,38 @@ async function saveSnapshot(
   };
 }
 
+async function saveBaselineSnapshot(
+  supabase: Supabase,
+  monitoredPage: MonitoredPage,
+  scrape: ScrapedPage,
+) {
+  const existingSnapshot = await latestSnapshot(supabase, monitoredPage.id);
+  const snapshotCreated = existingSnapshot?.hash !== scrape.hash;
+
+  if (snapshotCreated) {
+    const { error: snapshotError } = await supabase.from("snapshots").insert({
+      monitored_page_id: monitoredPage.id,
+      raw_text: scrape.rawText,
+      hash: scrape.hash,
+    });
+
+    if (snapshotError) {
+      throw new Error(snapshotError.message);
+    }
+  }
+
+  const { error: updateError } = await supabase
+    .from("monitored_pages")
+    .update({ last_checked_at: new Date().toISOString() })
+    .eq("id", monitoredPage.id);
+
+  if (updateError) {
+    throw new Error(updateError.message);
+  }
+
+  return { snapshotCreated };
+}
+
 export async function createInitialMonitoringSetup(
   supabase: Supabase,
   competitorId: string,
@@ -304,6 +338,156 @@ export async function createInitialMonitoringSetup(
       snapshotsCreated,
       intelligenceSnapshotCreated,
       crawlWarning,
+    },
+  };
+}
+
+export async function rerunCompetitorIntelligence(
+  supabase: Supabase,
+  {
+    competitorId,
+    competitorName,
+    baselinePageIds = [],
+  }: {
+    competitorId: string;
+    competitorName: string;
+    baselinePageIds?: string[];
+  },
+): Promise<
+  ScannerResult<{
+    pagesAnalyzed: number;
+    intelligenceSnapshotCreated: boolean;
+    baselineSnapshotsCreated: number;
+    failed: number;
+    warnings: string[];
+  }>
+> {
+  await updateCompetitorScanStatus({
+    supabase,
+    competitorId,
+    status: "running",
+  });
+
+  const { data: monitoredPages, error: pagesError } = await supabase
+    .from("monitored_pages")
+    .select("*")
+    .eq("competitor_id", competitorId);
+
+  if (pagesError) {
+    await updateCompetitorScanStatus({
+      supabase,
+      competitorId,
+      status: "failed",
+      error: pagesError.message,
+    });
+
+    return { data: null, error: pagesError.message };
+  }
+
+  const pages = monitoredPages ?? [];
+
+  if (!pages.length) {
+    const error = "No monitored pages found.";
+
+    await updateCompetitorScanStatus({
+      supabase,
+      competitorId,
+      status: "failed",
+      error,
+    });
+
+    return { data: null, error };
+  }
+
+  const baselinePageIdSet = new Set(baselinePageIds);
+  const scrapes = await scrapePages(pages.map((page) => page.url));
+  const scrapeByUrl = byRequestedUrl(scrapes);
+  const intelligencePages: PageIntelligence[] = [];
+  let baselineSnapshotsCreated = 0;
+  let failed = 0;
+  const warnings: string[] = [];
+
+  for (const page of pages) {
+    const scrape = scrapeByUrl.get(page.url);
+
+    if (!scrape || !scrape.ok) {
+      failed += 1;
+      warnings.push(`${page.url}: ${scrapeFailureMessage(scrape)}`);
+      continue;
+    }
+
+    intelligencePages.push(
+      analyzePageIntelligence({
+        pageType: page.page_type as PageType,
+        scrape,
+      }),
+    );
+
+    if (baselinePageIdSet.has(page.id)) {
+      try {
+        const baseline = await saveBaselineSnapshot(supabase, page, scrape);
+        baselineSnapshotsCreated += baseline.snapshotCreated ? 1 : 0;
+      } catch (error) {
+        failed += 1;
+        warnings.push(
+          error instanceof Error ? error.message : "Could not save baseline.",
+        );
+      }
+    }
+  }
+
+  if (!intelligencePages.length) {
+    const error = warnings[0] ?? "No useful public pages found.";
+
+    await updateCompetitorScanStatus({
+      supabase,
+      competitorId,
+      status: "failed",
+      error,
+    });
+
+    return { data: null, error };
+  }
+
+  const intelligenceSummary = await summarizeIntelligence({
+    competitorName,
+    pages: intelligencePages,
+  });
+  const intelligenceError = await saveCompetitorIntelligenceSnapshot({
+    supabase,
+    competitorId,
+    pages: intelligencePages,
+    summary: intelligenceSummary,
+  });
+  const intelligenceSnapshotCreated = !intelligenceError;
+
+  if (
+    intelligenceError &&
+    !isOptionalIntelligencePersistenceError(intelligenceError)
+  ) {
+    await updateCompetitorScanStatus({
+      supabase,
+      competitorId,
+      status: "failed",
+      error: intelligenceError,
+    });
+
+    return { data: null, error: intelligenceError };
+  }
+
+  await updateCompetitorScanStatus({
+    supabase,
+    competitorId,
+    status: "ready",
+  });
+
+  return {
+    data: {
+      pagesAnalyzed: intelligencePages.length,
+      intelligenceSnapshotCreated,
+      baselineSnapshotsCreated,
+      failed,
+      warnings,
     },
   };
 }

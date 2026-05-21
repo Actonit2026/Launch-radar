@@ -4,14 +4,18 @@ const pageOrder: Record<PageType, number> = {
   homepage: 0,
   pricing: 1,
   features: 2,
-  changelog: 3,
+  product: 3,
+  changelog: 4,
+  docs: 5,
 };
 
 const pageLabels: Record<PageType, string> = {
   homepage: "Homepage",
   pricing: "Pricing",
   features: "Features",
+  product: "Product",
   changelog: "Changelog",
+  docs: "Docs",
 };
 
 export function formatPageOrder(pageType: PageType) {

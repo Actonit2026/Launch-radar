@@ -17,6 +17,16 @@ const defaultPages: Array<{ pageType: PageType; path: string }> = [
   { pageType: "changelog", path: "/changelog" },
 ];
 
+export const manualPageTypes = [
+  "pricing",
+  "features",
+  "product",
+  "changelog",
+  "docs",
+] as const satisfies readonly PageType[];
+
+export type ManualPageType = (typeof manualPageTypes)[number];
+
 export type ParsedCompetitorUrl = {
   baseUrl: string;
   submittedUrl: string;
@@ -48,6 +58,10 @@ function normalizePathname(url: URL) {
 
 function hasSubpage(url: URL) {
   return url.pathname !== "/" || url.search.length > 0;
+}
+
+function normalizeHost(value: string) {
+  return value.toLowerCase().replace(/^www\./, "");
 }
 
 export function parseCompetitorUrl(input: string): ParsedCompetitorUrl {
@@ -86,6 +100,42 @@ export function parseCompetitorUrl(input: string): ParsedCompetitorUrl {
 
 export function normalizeBaseUrl(input: string) {
   return parseCompetitorUrl(input).baseUrl;
+}
+
+export function isManualPageType(value: string): value is ManualPageType {
+  return manualPageTypes.includes(value as ManualPageType);
+}
+
+export function parseManualPageUrl(input: string, baseUrl: string) {
+  const trimmed = input.trim();
+
+  if (!trimmed) {
+    throw new Error("Page URL is required.");
+  }
+
+  const candidate = trimmed.startsWith("/")
+    ? new URL(trimmed, baseUrl).toString()
+    : /^https?:\/\//i.test(trimmed)
+      ? trimmed
+      : trimmed.includes(".")
+        ? `https://${trimmed}`
+        : new URL(trimmed.replace(/^\/+/, ""), baseUrl).toString();
+  const pageUrl = new URL(candidate, baseUrl);
+  const base = new URL(baseUrl);
+
+  if (pageUrl.protocol !== "http:" && pageUrl.protocol !== "https:") {
+    throw new Error("Unsupported URL protocol.");
+  }
+
+  if (normalizeHost(pageUrl.hostname) !== normalizeHost(base.hostname)) {
+    throw new Error("Manual pages must be on the competitor domain.");
+  }
+
+  pageUrl.hash = "";
+  normalizePathname(pageUrl);
+  stripTrackingParams(pageUrl);
+
+  return pageUrl.toString();
 }
 
 export function createDefaultMonitoredPages(

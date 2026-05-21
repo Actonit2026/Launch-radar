@@ -212,7 +212,13 @@ export type Database = {
     Views: Record<string, never>;
     Functions: Record<string, never>;
     Enums: {
-      page_type: "homepage" | "pricing" | "features" | "changelog";
+      page_type:
+        | "homepage"
+        | "pricing"
+        | "features"
+        | "product"
+        | "changelog"
+        | "docs";
       change_severity: "low" | "medium" | "high";
     };
     CompositeTypes: Record<string, never>;
