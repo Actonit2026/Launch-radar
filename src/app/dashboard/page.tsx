@@ -76,6 +76,12 @@ export default async function DashboardPage() {
         <div className="flex flex-wrap gap-3">
           <RunScanButton />
           <AddCompetitorDialog />
+          <Link
+            href="/dashboard/settings"
+            className="inline-flex h-11 items-center justify-center rounded-md border border-ink/15 bg-white px-5 text-sm font-semibold text-ink transition hover:border-ink/35"
+          >
+            Settings
+          </Link>
           <form action={signOutAction}>
             <button className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-ink/90">
               Sign out

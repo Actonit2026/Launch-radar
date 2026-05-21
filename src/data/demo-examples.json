@@ -1,0 +1,38 @@
+{
+  "updated_at": "2026-05-21T00:00:00.000Z",
+  "examples": [
+    {
+      "name": "Linear",
+      "site_url": "https://linear.app",
+      "source_url": "https://linear.app/pricing",
+      "positioning": "Purpose-built for modern teams with AI workflows.",
+      "pricing": "Free plan detected; Basic listed at USD 10 per user/month.",
+      "cta": "Get started",
+      "feature_signal": "Agent platform, issue tracking, and product workflows.",
+      "evidence_text": "Basic $10 per user/month; Get started.",
+      "confidence": "high"
+    },
+    {
+      "name": "Resend",
+      "site_url": "https://resend.com",
+      "source_url": "https://resend.com/pricing",
+      "positioning": "Email platform aimed at developers and startups.",
+      "pricing": "Free plan detected in public pricing.",
+      "cta": "Sign up for free",
+      "feature_signal": "Email API, SMTP, inbound, automations, audiences, broadcasts, templates, and webhooks.",
+      "evidence_text": "Free Pro Scale Enterprise; Sign up for free.",
+      "confidence": "medium"
+    },
+    {
+      "name": "Supabase",
+      "site_url": "https://supabase.com",
+      "source_url": "https://supabase.com/pricing",
+      "positioning": "Postgres development platform with hosted project infrastructure.",
+      "pricing": "Free plan detected in public pricing.",
+      "cta": "View pricing",
+      "feature_signal": "Dedicated Postgres project infrastructure.",
+      "evidence_text": "Every project on the Supabase Platform comes with its own dedicated Postgres instance.",
+      "confidence": "medium"
+    }
+  ]
+}
