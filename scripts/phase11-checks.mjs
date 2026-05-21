@@ -1,0 +1,470 @@
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { createServer } from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import ts from "typescript";
+
+const require = createRequire(import.meta.url);
+const rootDir = process.cwd();
+const outDir = await mkdtemp(path.join(tmpdir(), "launchradar-phase11-"));
+
+delete process.env.OPENAI_API_KEY;
+delete process.env.OPENAI_SUMMARY_MODEL;
+
+const sourceFiles = [
+  "src/lib/database.types.ts",
+  "src/lib/urls.ts",
+  "src/lib/crawler/text.ts",
+  "src/lib/crawler/browser.ts",
+  "src/lib/crawler/scraper.ts",
+  "src/lib/crawler/discovery.ts",
+  "src/lib/intelligence/types.ts",
+  "src/lib/intelligence/text.ts",
+  "src/lib/intelligence/pricing.ts",
+  "src/lib/intelligence/positioning.ts",
+  "src/lib/intelligence/ctas.ts",
+  "src/lib/intelligence/features.ts",
+  "src/lib/intelligence/changelog.ts",
+  "src/lib/intelligence/analyze.ts",
+  "src/lib/ai/config.ts",
+  "src/lib/ai/intelligence-summary.ts",
+].map((file) => path.join(rootDir, file));
+
+const compilerOptions = {
+  target: ts.ScriptTarget.ES2020,
+  module: ts.ModuleKind.CommonJS,
+  moduleResolution: ts.ModuleResolutionKind.Node10,
+  rootDir,
+  outDir,
+  esModuleInterop: true,
+  skipLibCheck: true,
+  strict: true,
+  noEmitOnError: true,
+  baseUrl: rootDir,
+  paths: {
+    "@/*": ["src/*"],
+  },
+};
+
+function compileSources() {
+  const program = ts.createProgram(sourceFiles, compilerOptions);
+  const emit = program.emit();
+  const diagnostics = ts
+    .getPreEmitDiagnostics(program)
+    .concat(emit.diagnostics);
+
+  if (diagnostics.length) {
+    const formatted = ts.formatDiagnosticsWithColorAndContext(diagnostics, {
+      getCanonicalFileName: (fileName) => fileName,
+      getCurrentDirectory: () => rootDir,
+      getNewLine: () => "\n",
+    });
+    throw new Error(formatted);
+  }
+}
+
+function installAliasResolver() {
+  const Module = require("node:module");
+  const originalResolve = Module._resolveFilename;
+  const rootModule = new Module(path.join(rootDir, "package.json"));
+  rootModule.filename = path.join(rootDir, "package.json");
+  rootModule.paths = Module._nodeModulePaths(rootDir);
+
+  Module._resolveFilename = function resolveAlias(request, parent, isMain, options) {
+    if (request.startsWith("@/")) {
+      const mapped = path.join(outDir, "src", `${request.slice(2)}.js`);
+      return originalResolve.call(this, mapped, parent, isMain, options);
+    }
+
+    if (
+      !request.startsWith(".") &&
+      !path.isAbsolute(request) &&
+      !Module.builtinModules.includes(request) &&
+      !request.startsWith("node:")
+    ) {
+      try {
+        return originalResolve.call(this, request, parent, isMain, options);
+      } catch (error) {
+        if (error?.code !== "MODULE_NOT_FOUND") {
+          throw error;
+        }
+
+        return originalResolve.call(this, request, rootModule, isMain, options);
+      }
+    }
+
+    return originalResolve.call(this, request, parent, isMain, options);
+  };
+
+  return () => {
+    Module._resolveFilename = originalResolve;
+  };
+}
+
+function html({ title, body, links = "" }) {
+  return `<!doctype html><html><head><title>${title}</title><meta name="description" content="${title} public page"></head><body><main>${links}${body}</main></body></html>`;
+}
+
+function response(res, status, contentType, body) {
+  res.writeHead(status, { "content-type": contentType });
+  res.end(body);
+}
+
+async function withFixtureSite(callback) {
+  const server = createServer((req, res) => {
+    const requestUrl = new URL(req.url ?? "/", "http://fixture.local");
+
+    switch (requestUrl.pathname) {
+      case "/":
+        response(
+          res,
+          200,
+          "text/html",
+          html({
+            title: "FixtureCo homepage",
+            links: [
+              '<a href="/packages">Packages</a>',
+              '<a href="/features">Features</a>',
+              '<a href="/release-notes">Release notes</a>',
+              '<a href="/blog">Blog</a>',
+            ].join(""),
+            body: [
+              "<h1>FixtureCo launch monitoring</h1>",
+              "<p>Track public website updates with evidence.</p>",
+              "<p>Trusted by 2,500 customers with 99.9% uptime and 24/7 support.</p>",
+            ].join(""),
+          }),
+        );
+        return;
+      case "/packages":
+        response(
+          res,
+          200,
+          "text/html",
+          html({
+            title: "Packages",
+            body: [
+              "<h1>Packages</h1>",
+              "<section><h2>Free</h2><p>Free forever</p></section>",
+              "<section><h2>Starter</h2><p>Starter plan $19/mo</p></section>",
+              "<section><h2>Business</h2><p>$49 per user/month billed annually</p></section>",
+              "<section><h2>Enterprise</h2><p>Contact sales</p></section>",
+            ].join(""),
+          }),
+        );
+        return;
+      case "/features":
+        response(
+          res,
+          200,
+          "text/html",
+          html({
+            title: "Features",
+            body: [
+              "<h1>Features</h1>",
+              "<h2>Automated monitoring</h2><p>Track competitor pages on a schedule.</p>",
+              "<h2>Pricing alerts</h2><p>Catch packaging and plan changes.</p>",
+              "<h2>Evidence-backed summaries</h2><p>Every result links to public source text.</p>",
+            ].join(""),
+          }),
+        );
+        return;
+      case "/release-notes":
+        response(
+          res,
+          200,
+          "text/html",
+          html({
+            title: "Release notes",
+            body: [
+              "<h1>Release notes</h1>",
+              "<article><h2>May 1, 2026 - New alerts released</h2><p>Improved pricing monitoring.</p></article>",
+              "<article><h2>April 12, 2026 - Fixed crawler retries</h2></article>",
+            ].join(""),
+          }),
+        );
+        return;
+      case "/blog":
+        response(
+          res,
+          200,
+          "text/html",
+          html({
+            title: "Blog",
+            body: "<h1>Company blog</h1><p>Lessons from customer research.</p><p>May 1, 2026</p>",
+          }),
+        );
+        return;
+      case "/sitemap.xml":
+        response(
+          res,
+          200,
+          "application/xml",
+          `<?xml version="1.0"?><urlset><url><loc>http://${req.headers.host}/release-notes</loc></url><url><loc>http://${req.headers.host}/blog</loc></url></urlset>`,
+        );
+        return;
+      case "/pricing":
+        response(res, 404, "text/html", "<h1>Not found</h1>");
+        return;
+      default:
+        response(res, 404, "text/html", "<h1>Not found</h1>");
+    }
+  });
+
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const address = server.address();
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+
+  try {
+    await callback(baseUrl);
+  } finally {
+    await new Promise((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
+}
+
+function scrapedPage({
+  url = "https://example.com/pricing",
+  title = "Fixture page",
+  rawText,
+  links = [],
+}) {
+  return {
+    requestedUrl: url,
+    finalUrl: url,
+    title,
+    metaDescription: `${title} meta`,
+    status: 200,
+    ok: true,
+    rawText,
+    hash: `hash:${title}:${rawText.length}`,
+    links,
+  };
+}
+
+const checks = [];
+
+function check(name, fn) {
+  checks.push({ name, fn });
+}
+
+function fieldsHaveEvidence(facts) {
+  for (const fact of facts) {
+    assert.ok(fact.source_url, `${fact.field} missing source_url`);
+    assert.ok(fact.evidence_text, `${fact.field} missing evidence_text`);
+    assert.ok(fact.confidence, `${fact.field} missing confidence`);
+  }
+}
+
+try {
+  compileSources();
+  const restoreResolver = installAliasResolver();
+  const {
+    parseCompetitorUrl,
+    parseManualPageUrl,
+  } = require(path.join(outDir, "src/lib/urls.js"));
+  const { analyzePricing } = require(path.join(
+    outDir,
+    "src/lib/intelligence/pricing.js",
+  ));
+  const { analyzePageIntelligence } = require(path.join(
+    outDir,
+    "src/lib/intelligence/analyze.js",
+  ));
+  const { discoverCompetitorPages } = require(path.join(
+    outDir,
+    "src/lib/crawler/discovery.js",
+  ));
+  const { summarizeIntelligence } = require(path.join(
+    outDir,
+    "src/lib/ai/intelligence-summary.js",
+  ));
+
+  check("normalizes bare domain", () => {
+    const parsed = parseCompetitorUrl("example.com");
+    assert.equal(parsed.baseUrl, "https://example.com");
+    assert.equal(parsed.submittedPageUrl, undefined);
+  });
+
+  check("normalizes https domain", () => {
+    const parsed = parseCompetitorUrl("https://example.com");
+    assert.equal(parsed.baseUrl, "https://example.com");
+    assert.equal(parsed.submittedUrl, "https://example.com/");
+  });
+
+  check("supports www domain", () => {
+    const parsed = parseCompetitorUrl("www.example.com");
+    assert.equal(parsed.baseUrl, "https://www.example.com");
+  });
+
+  check("normalizes subpage and strips tracking parameters", () => {
+    const parsed = parseCompetitorUrl(
+      "example.com/pricing/?utm_source=ad&plan=pro#gated",
+    );
+    assert.equal(parsed.baseUrl, "https://example.com");
+    assert.equal(parsed.submittedPageUrl, "https://example.com/pricing?plan=pro");
+  });
+
+  check("manual page URLs stay on the same domain", () => {
+    assert.equal(
+      parseManualPageUrl("/plans/?utm_campaign=x", "https://example.com"),
+      "https://example.com/plans",
+    );
+    assert.throws(
+      () => parseManualPageUrl("https://other.example/pricing", "https://example.com"),
+      /competitor domain/,
+    );
+  });
+
+  check("detects reliable monthly EUR pricing", () => {
+    const pricing = analyzePricing(
+      scrapedPage({
+        rawText: "Pricing\nStarter plan \u20AC5/month\nBilled monthly",
+      }),
+      "pricing",
+    );
+    assert.equal(pricing.status, "found");
+    assert.equal(pricing.lowestPrice.normalized_value.amount, 5);
+    assert.equal(pricing.lowestPrice.normalized_value.currency, "EUR");
+    assert.equal(pricing.lowestPrice.normalized_value.period, "month");
+    assert.equal(pricing.lowestPrice.confidence, "high");
+    fieldsHaveEvidence(pricing.facts);
+  });
+
+  check("detects per-user USD pricing and contact sales", () => {
+    const pricing = analyzePricing(
+      scrapedPage({
+        rawText:
+          "Packages\nStarter $19/mo\nBusiness $49 per user/month\nEnterprise Contact sales",
+      }),
+      "pricing",
+    );
+    assert.equal(pricing.status, "found");
+    assert.ok(pricing.paidPlans.some((fact) => fact.normalized_value.unit === "user"));
+    assert.ok(pricing.contactSales);
+    fieldsHaveEvidence(pricing.facts);
+  });
+
+  check("detects contact-sales-only pricing without inventing a price", () => {
+    const pricing = analyzePricing(
+      scrapedPage({
+        rawText: "Enterprise pricing\nCustom packaging\nContact sales",
+      }),
+      "pricing",
+    );
+    assert.equal(pricing.status, "found");
+    assert.equal(pricing.paidPlans.length, 0);
+    assert.ok(pricing.contactSales);
+  });
+
+  check("does not mistake counts, uptime, support, or years for prices", () => {
+    const pricing = analyzePricing(
+      scrapedPage({
+        rawText:
+          "Trusted by 2,500 customers\n99.9% uptime\n24/7 support\nFounded in 2020\n100 integrations",
+      }),
+      "homepage",
+    );
+    assert.equal(pricing.status, "unavailable");
+    assert.equal(pricing.paidPlans.length, 0);
+  });
+
+  check("detects pricing when it is only visible on homepage", () => {
+    const pricing = analyzePricing(
+      scrapedPage({
+        url: "https://example.com/",
+        rawText: "Plans\nStarter plan $29/mo\nStart free",
+      }),
+      "homepage",
+    );
+    assert.equal(pricing.status, "found");
+    assert.equal(pricing.lowestPrice.normalized_value.amount, 29);
+  });
+
+  check("detects changelog pages but not generic blog pages", () => {
+    const changelog = analyzePageIntelligence({
+      pageType: "changelog",
+      scrape: scrapedPage({
+        url: "https://example.com/release-notes",
+        title: "Release notes",
+        rawText:
+          "Release notes\nMay 1, 2026 - New alerts released\nImproved pricing monitoring\nFixed crawler retries",
+      }),
+    });
+    assert.equal(changelog.changelog.status, "found");
+    fieldsHaveEvidence(changelog.facts);
+
+    const blog = analyzePageIntelligence({
+      pageType: "homepage",
+      scrape: scrapedPage({
+        url: "https://example.com/blog",
+        title: "Blog",
+        rawText: "Company blog\nLessons from customer research\nMay 1, 2026",
+      }),
+    });
+    assert.equal(blog.changelog.status, "unavailable");
+  });
+
+  check("discovers same-domain pages and survives a failed candidate", async () => {
+    await withFixtureSite(async (baseUrl) => {
+      const pages = await discoverCompetitorPages(baseUrl);
+      const byType = new Map(pages.map((page) => [page.pageType, page]));
+
+      assert.ok(byType.get("homepage"), "homepage not discovered");
+      assert.ok(byType.get("features"), "features page not discovered");
+      assert.ok(byType.get("pricing")?.url.includes("/packages"), "packages pricing page not selected");
+      assert.ok(byType.get("changelog")?.url.includes("/release-notes"), "release notes page not selected");
+      assert.ok(!pages.some((page) => page.url.endsWith("/pricing")), "failed /pricing fallback was selected");
+    });
+  });
+
+  check("summarizes only verified structured facts or limited data", async () => {
+    const page = analyzePageIntelligence({
+      pageType: "pricing",
+      scrape: scrapedPage({
+        rawText: "Pricing\nStarter plan $19/mo\nBook a demo",
+      }),
+    });
+    const summary = await summarizeIntelligence({
+      competitorName: "FixtureCo",
+      pages: [page],
+    });
+
+    assert.equal(
+      /is a saas product|offer software solutions|improve productivity/i.test(
+        summary.executive_summary ?? "",
+      ),
+      false,
+    );
+    assert.ok(
+      summary.pricing_summary?.includes("$19") ||
+        summary.executive_summary?.includes("$19"),
+      "summary should include verified pricing evidence",
+    );
+
+    const weakSummary = await summarizeIntelligence({
+      competitorName: "FixtureCo",
+      pages: [],
+    });
+    assert.equal(
+      weakSummary.executive_summary,
+      "Initial scan completed, but reliable public data was limited.",
+    );
+  });
+
+  let passed = 0;
+
+  for (const item of checks) {
+    await item.fn();
+    passed += 1;
+    console.log(`PASS ${item.name}`);
+  }
+
+  restoreResolver();
+  console.log(`\nPhase 11 checks passed: ${passed}/${checks.length}`);
+} finally {
+  await rm(outDir, { force: true, recursive: true });
+}
