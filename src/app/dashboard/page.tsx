@@ -232,8 +232,8 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <p className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-              Future confirmed website changes will appear here after a later
-              scan finds a real difference from the baseline.
+              No meaningful changes detected. Minor formatting or technical
+              changes are ignored.
             </p>
           )}
         </div>

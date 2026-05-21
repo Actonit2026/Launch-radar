@@ -19,6 +19,7 @@ const sourceFiles = [
   "src/lib/crawler/text.ts",
   "src/lib/crawler/browser.ts",
   "src/lib/crawler/scraper.ts",
+  "src/lib/change-detection.ts",
   "src/lib/crawler/discovery.ts",
   "src/lib/intelligence/types.ts",
   "src/lib/intelligence/text.ts",
@@ -282,6 +283,11 @@ try {
     outDir,
     "src/lib/ai/intelligence-summary.js",
   ));
+  const {
+    buildSnapshotAnalysis,
+    compareSnapshotAnalyses,
+    normalizeForChangeDetection,
+  } = require(path.join(outDir, "src/lib/change-detection.js"));
 
   check("normalizes bare domain", () => {
     const parsed = parseCompetitorUrl("example.com");
@@ -453,6 +459,85 @@ try {
       weakSummary.executive_summary,
       "Initial scan completed, but reliable public data was limited.",
     );
+  });
+
+  function comparePage(previousText, nextText, pageType = "pricing") {
+    const previous = buildSnapshotAnalysis({
+      pageType,
+      scrape: scrapedPage({ rawText: previousText }),
+    });
+    const current = buildSnapshotAnalysis({
+      pageType,
+      scrape: scrapedPage({ rawText: nextText }),
+    });
+
+    return compareSnapshotAnalyses({
+      previousRawHash: previous.rawContentHash,
+      previousCanonicalHash: previous.canonicalContentHash,
+      previousStructuredFactsHash: previous.structuredFactsHash,
+      previousFacts: previous.structuredFacts,
+      previousCanonicalContent: previous.canonicalContent,
+      current,
+    });
+  }
+
+  check("normalizes cosmetic changes for meaningful change detection", () => {
+    assert.equal(
+      normalizeForChangeDetection("Start Free\n\u20AC 5 / month\nAI SaaS tool"),
+      normalizeForChangeDetection("START FREE\n\u20AC5/month\nai saas tool"),
+    );
+
+    const result = comparePage(
+      "Pricing\nStarter plan \u20AC 5 / month\nStart Free",
+      "Pricing\nStarter plan \u20AC5/month\nSTART FREE",
+    );
+
+    assert.equal(result.meaningfulChanges.length, 0);
+    assert.ok(result.ignoredReasons.length);
+  });
+
+  check("ignores nav footer cookie and reordered equivalent content", () => {
+    const result = comparePage(
+      "Pricing\nStarter plan $19/mo\nAccept cookies\nPrivacy policy\nBook demo",
+      "Book demo\nPrivacy policy\nStarter plan $19/mo\nPricing\nCookie settings",
+    );
+
+    assert.equal(result.meaningfulChanges.length, 0);
+  });
+
+  check("detects meaningful pricing changes", () => {
+    const result = comparePage(
+      "Pricing\nStarter plan \u20AC5/month\nFree forever",
+      "Pricing\nStarter plan \u20AC9/month",
+    );
+    const changeTypes = result.meaningfulChanges.map((change) => change.changeType);
+
+    assert.ok(changeTypes.includes("lowest_price_changed"));
+    assert.ok(changeTypes.includes("free_plan_removed"));
+  });
+
+  check("detects meaningful CTA positioning feature and changelog changes", () => {
+    const cta = comparePage(
+      "Home\nLaunch monitoring for freelancers\nStart free",
+      "Home\nLaunch monitoring for agencies\nBook a demo",
+      "homepage",
+    );
+    assert.ok(cta.meaningfulChanges.some((change) => change.changeType === "primary_cta_changed"));
+    assert.ok(cta.meaningfulChanges.some((change) => change.changeType === "homepage_headline_changed"));
+
+    const features = comparePage(
+      "Features\nAutomation dashboard\nTrack workflows\nAnalytics reports\nSecurity alerts",
+      "Features\nAutomation dashboard\nTrack workflows\nAnalytics reports\nSecurity alerts\nAPI integrations",
+      "features",
+    );
+    assert.ok(features.meaningfulChanges.some((change) => change.changeType === "feature_added"));
+
+    const changelog = comparePage(
+      "Release notes\nApril 12, 2026 - Fixed crawler retries",
+      "Release notes\nMay 1, 2026 - Stripe integration launched\nApril 12, 2026 - Fixed crawler retries",
+      "changelog",
+    );
+    assert.ok(changelog.meaningfulChanges.some((change) => change.changeType === "new_changelog_entry"));
   });
 
   let passed = 0;

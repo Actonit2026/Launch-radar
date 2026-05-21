@@ -84,17 +84,20 @@ export function analyzePositioning(
   pageType: PageType,
 ): PositioningAnalysis {
   const sourceUrl = scrape.finalUrl;
+  const bodyLines = textLines(scrape);
   const lines = uniqueBy(
-    [scrape.title, scrape.metaDescription, ...textLines(scrape)].filter(
-      Boolean,
-    ),
+    [scrape.title, scrape.metaDescription, ...bodyLines].filter(Boolean),
+    sentenceCaseKey,
+  );
+  const homepageLines = uniqueBy(
+    [...bodyLines, scrape.title, scrape.metaDescription].filter(Boolean),
     sentenceCaseKey,
   );
   const used = new Set<string>();
   const facts: StructuredFact[] = [];
   const homepageHeadline =
     pageType === "homepage"
-      ? firstUsefulLine(lines)
+      ? firstUsefulLine(homepageLines)
       : firstUsefulLine([scrape.title, scrape.metaDescription].filter(Boolean));
 
   if (homepageHeadline) {

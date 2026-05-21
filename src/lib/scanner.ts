@@ -5,14 +5,22 @@ import type {
   MonitoredPage,
   PageType,
 } from "@/lib/database.types";
-import {
-  OPENAI_NOT_CONFIGURED_ERROR,
-  summarizeChange,
-} from "@/lib/ai/change-summary";
 import { summarizeIntelligence } from "@/lib/ai/intelligence-summary";
+import {
+  buildSnapshotAnalysis,
+  buildUnavailableSnapshotAnalysis,
+  compareSnapshotAnalyses,
+  createDetectedChangePayload,
+  normalizeForChangeDetection,
+  parseSnapshotFacts,
+  snapshotFactsToJson,
+  type MeaningfulChange,
+  type SnapshotAnalysis,
+  type SnapshotComparison,
+  type SnapshotFacts,
+} from "@/lib/change-detection";
 import { discoverCompetitorPages } from "@/lib/crawler/discovery";
 import { scrapePages, type ScrapedPage } from "@/lib/crawler/scraper";
-import { detectTextDiff } from "@/lib/diff-engine";
 import { formatDatabaseError } from "@/lib/errors";
 import { analyzePageIntelligence } from "@/lib/intelligence/analyze";
 import type { PageIntelligence } from "@/lib/intelligence/types";
@@ -67,10 +75,15 @@ type ManualScanDebugOutcome = {
   fetch_status: number | null;
   ok: boolean;
   snapshot_created?: boolean;
+  raw_changed?: boolean;
+  canonical_changed?: boolean;
+  structured_facts_changed?: boolean;
   changed?: boolean;
   change_created?: boolean;
   summary_source?: "openai" | "heuristic" | null;
   summary_error?: string | null;
+  ignored_reasons?: string[];
+  meaningful_changes?: MeaningfulChange[];
   notification_sent?: boolean;
   notification_skipped?: boolean;
   error?: string;
@@ -108,7 +121,9 @@ function isOptionalIntelligencePersistenceError(error: string | null) {
 async function latestSnapshot(supabase: Supabase, monitoredPageId: string) {
   const { data, error } = await supabase
     .from("snapshots")
-    .select("hash, raw_text")
+    .select(
+      "hash, raw_text, raw_content_hash, canonical_content_hash, structured_facts_hash, structured_facts_json",
+    )
     .eq("monitored_page_id", monitoredPageId)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -121,69 +136,120 @@ async function latestSnapshot(supabase: Supabase, monitoredPageId: string) {
   return data ?? null;
 }
 
-async function saveSnapshot(
+function previousSnapshotState(
+  monitoredPage: MonitoredPage,
+  existingSnapshot: NonNullable<Awaited<ReturnType<typeof latestSnapshot>>>,
+) {
+  const legacyScrape: ScrapedPage = {
+    requestedUrl: monitoredPage.url,
+    finalUrl: monitoredPage.url,
+    title: "",
+    metaDescription: "",
+    status: 200,
+    ok: true,
+    rawText: existingSnapshot.raw_text,
+    hash: existingSnapshot.hash,
+    links: [],
+  };
+  const legacyAnalysis = buildSnapshotAnalysis({
+    pageType: monitoredPage.page_type,
+    scrape: legacyScrape,
+  });
+  const parsedFacts = parseSnapshotFacts(
+    existingSnapshot.structured_facts_json,
+  );
+
+  return {
+    rawHash:
+      existingSnapshot.raw_content_hash ??
+      existingSnapshot.hash ??
+      legacyAnalysis.rawContentHash,
+    canonicalHash:
+      existingSnapshot.canonical_content_hash ??
+      legacyAnalysis.canonicalContentHash,
+    structuredFactsHash:
+      existingSnapshot.structured_facts_hash ??
+      legacyAnalysis.structuredFactsHash,
+    facts: parsedFacts ?? legacyAnalysis.structuredFacts,
+    canonicalContent: normalizeForChangeDetection(existingSnapshot.raw_text),
+  };
+}
+
+async function saveAnalyzedSnapshot(
   supabase: Supabase,
   monitoredPage: MonitoredPage,
-  scrape: ScrapedPage,
-  options?: { competitorName?: string },
+  current: SnapshotAnalysis,
 ) {
   const existingSnapshot = await latestSnapshot(supabase, monitoredPage.id);
-  const snapshotCreated = existingSnapshot?.hash !== scrape.hash;
-  const changed = Boolean(existingSnapshot && snapshotCreated);
+  let comparison: SnapshotComparison | null = null;
+  let previousFacts: SnapshotFacts | null = null;
+
+  if (existingSnapshot) {
+    const previous = previousSnapshotState(monitoredPage, existingSnapshot);
+    previousFacts = previous.facts;
+    comparison = compareSnapshotAnalyses({
+      previousRawHash: previous.rawHash,
+      previousCanonicalHash: previous.canonicalHash,
+      previousStructuredFactsHash: previous.structuredFactsHash,
+      previousFacts,
+      previousCanonicalContent: previous.canonicalContent,
+      current,
+    });
+  }
+
+  const snapshotCreated = Boolean(
+    !existingSnapshot ||
+      comparison?.canonicalChanged ||
+      comparison?.structuredFactsChanged,
+  );
+  const meaningfulChanges = comparison?.meaningfulChanges ?? [];
+  const changed = meaningfulChanges.length > 0;
   let changeCreated = false;
   let change: Pick<
     DetectedChange,
     "id" | "diff_summary" | "severity" | "created_at"
   > | null = null;
   let summarySource: "openai" | "heuristic" | null = null;
-  let summaryError: string | null = null;
+  const summaryError: string | null = null;
+
+  if (changed) {
+    summarySource = "heuristic";
+  }
 
   if (snapshotCreated) {
     const { error: snapshotError } = await supabase.from("snapshots").insert({
       monitored_page_id: monitoredPage.id,
-      raw_text: scrape.rawText,
-      hash: scrape.hash,
+      raw_text: current.rawText,
+      hash: current.rawContentHash,
+      raw_content_hash: current.rawContentHash,
+      canonical_content_hash: current.canonicalContentHash,
+      structured_facts_hash: current.structuredFactsHash,
+      structured_facts_json: snapshotFactsToJson(current.structuredFacts),
     });
 
     if (snapshotError) {
       throw new Error(snapshotError.message);
     }
+  }
 
-    if (existingSnapshot) {
-      const diff = detectTextDiff({
-        previousText: existingSnapshot.raw_text,
-        nextText: scrape.rawText,
-        pageType: monitoredPage.page_type,
-      });
+  const detectedChangePayload = createDetectedChangePayload(meaningfulChanges);
 
-      if (diff.changed) {
-        const summary = await summarizeChange({
-          competitorName: options?.competitorName ?? "Tracked competitor",
-          pageType: monitoredPage.page_type,
-          pageUrl: monitoredPage.url,
-          diff,
-        });
-        summarySource = summary.source;
-        summaryError = summary.error ?? null;
+  if (existingSnapshot && detectedChangePayload) {
+    const { data: detectedChange, error: changeError } = await supabase
+      .from("detected_changes")
+      .insert({
+        monitored_page_id: monitoredPage.id,
+        ...detectedChangePayload,
+      })
+      .select("id, diff_summary, severity, created_at")
+      .single();
 
-        const { data: detectedChange, error: changeError } = await supabase
-          .from("detected_changes")
-          .insert({
-            monitored_page_id: monitoredPage.id,
-            diff_summary: `${summary.summary} ${summary.whyItMatters}`,
-            severity: summary.severity,
-          })
-          .select("id, diff_summary, severity, created_at")
-          .single();
-
-        if (changeError) {
-          throw new Error(changeError.message);
-        }
-
-        change = detectedChange;
-        changeCreated = true;
-      }
+    if (changeError) {
+      throw new Error(changeError.message);
     }
+
+    change = detectedChange;
+    changeCreated = true;
   }
 
   const { error: updateError } = await supabase
@@ -202,7 +268,39 @@ async function saveSnapshot(
     change,
     summarySource,
     summaryError,
+    rawChanged: comparison?.rawChanged ?? false,
+    canonicalChanged: comparison?.canonicalChanged ?? false,
+    structuredFactsChanged: comparison?.structuredFactsChanged ?? false,
+    ignoredReasons: comparison?.ignoredReasons ?? [],
+    meaningfulChanges,
   };
+}
+
+async function saveSnapshot(
+  supabase: Supabase,
+  monitoredPage: MonitoredPage,
+  scrape: ScrapedPage,
+) {
+  return saveAnalyzedSnapshot(
+    supabase,
+    monitoredPage,
+    buildSnapshotAnalysis({ pageType: monitoredPage.page_type, scrape }),
+  );
+}
+
+async function saveUnavailableSnapshot(
+  supabase: Supabase,
+  monitoredPage: MonitoredPage,
+  scrape: ScrapedPage,
+) {
+  return saveAnalyzedSnapshot(
+    supabase,
+    monitoredPage,
+    buildUnavailableSnapshotAnalysis({
+      pageType: monitoredPage.page_type,
+      scrape,
+    }),
+  );
 }
 
 async function saveBaselineSnapshot(
@@ -211,13 +309,28 @@ async function saveBaselineSnapshot(
   scrape: ScrapedPage,
 ) {
   const existingSnapshot = await latestSnapshot(supabase, monitoredPage.id);
-  const snapshotCreated = existingSnapshot?.hash !== scrape.hash;
+  const analysis = buildSnapshotAnalysis({
+    pageType: monitoredPage.page_type,
+    scrape,
+  });
+  const previous = existingSnapshot
+    ? previousSnapshotState(monitoredPage, existingSnapshot)
+    : null;
+  const snapshotCreated = Boolean(
+    !existingSnapshot ||
+      previous?.canonicalHash !== analysis.canonicalContentHash ||
+      previous?.structuredFactsHash !== analysis.structuredFactsHash,
+  );
 
   if (snapshotCreated) {
     const { error: snapshotError } = await supabase.from("snapshots").insert({
       monitored_page_id: monitoredPage.id,
-      raw_text: scrape.rawText,
-      hash: scrape.hash,
+      raw_text: analysis.rawText,
+      hash: analysis.rawContentHash,
+      raw_content_hash: analysis.rawContentHash,
+      canonical_content_hash: analysis.canonicalContentHash,
+      structured_facts_hash: analysis.structuredFactsHash,
+      structured_facts_json: snapshotFactsToJson(analysis.structuredFacts),
     });
 
     if (snapshotError) {
@@ -781,23 +894,81 @@ export async function scanMonitoredPagesForUser(
         url: monitoredPage.url,
         error,
       });
-      addScanOutcome(monitoredPage.competitor_id, {
+      const outcome: ManualScanDebugOutcome = {
         url: monitoredPage.url,
         page_type: monitoredPage.page_type,
         fetch_status: scrape?.status ?? null,
         ok: false,
         error,
-      });
+      };
+
+      if (scrape) {
+        try {
+          const saved = await saveUnavailableSnapshot(
+            supabase,
+            monitoredPage,
+            scrape,
+          );
+
+          result.checked += 1;
+          result.snapshotsCreated += saved.snapshotCreated ? 1 : 0;
+          result.changed += saved.changed ? 1 : 0;
+          result.changesCreated += saved.changeCreated ? 1 : 0;
+          outcome.snapshot_created = saved.snapshotCreated;
+          outcome.raw_changed = saved.rawChanged;
+          outcome.canonical_changed = saved.canonicalChanged;
+          outcome.structured_facts_changed = saved.structuredFactsChanged;
+          outcome.changed = saved.changed;
+          outcome.change_created = saved.changeCreated;
+          outcome.summary_source = saved.summarySource;
+          outcome.summary_error = saved.summaryError;
+          outcome.ignored_reasons = saved.ignoredReasons;
+          outcome.meaningful_changes = saved.meaningfulChanges;
+
+          if (saved.change) {
+            const notification = notificationForPage({
+              context: notificationContext,
+              monitoredPage,
+              change: saved.change,
+            });
+
+            if (!notification) {
+              result.notificationsSkipped += 1;
+              outcome.notification_skipped = true;
+            } else {
+              const notificationResult =
+                await sendChangeNotification(notification);
+
+              if (notificationResult.sent) {
+                result.notificationsSent += 1;
+                outcome.notification_sent = true;
+              } else if (notificationResult.skipped) {
+                result.notificationsSkipped += 1;
+                outcome.notification_skipped = true;
+              } else {
+                outcome.error =
+                  notificationResult.error ?? "Could not send email.";
+                result.notificationFailures.push({
+                  url: monitoredPage.url,
+                  error: notificationResult.error ?? "Could not send email.",
+                });
+              }
+            }
+          }
+        } catch (saveError) {
+          outcome.error =
+            saveError instanceof Error
+              ? saveError.message
+              : "Could not save unavailable page snapshot.";
+        }
+      }
+
+      addScanOutcome(monitoredPage.competitor_id, outcome);
       continue;
     }
 
     try {
-      const competitorName =
-        competitorById.get(monitoredPage.competitor_id)?.name ??
-        "Tracked competitor";
-      const saved = await saveSnapshot(supabase, monitoredPage, scrape, {
-        competitorName,
-      });
+      const saved = await saveSnapshot(supabase, monitoredPage, scrape);
       result.checked += 1;
       result.snapshotsCreated += saved.snapshotCreated ? 1 : 0;
       result.changed += saved.changed ? 1 : 0;
@@ -808,23 +979,20 @@ export async function scanMonitoredPagesForUser(
         fetch_status: scrape.status,
         ok: true,
         snapshot_created: saved.snapshotCreated,
+        raw_changed: saved.rawChanged,
+        canonical_changed: saved.canonicalChanged,
+        structured_facts_changed: saved.structuredFactsChanged,
         changed: saved.changed,
         change_created: saved.changeCreated,
         summary_source: saved.summarySource,
         summary_error: saved.summaryError,
+        ignored_reasons: saved.ignoredReasons,
+        meaningful_changes: saved.meaningfulChanges,
       };
 
       if (saved.changeCreated) {
-        if (saved.summarySource === "openai") {
-          result.aiSummariesCreated += 1;
-        } else {
-          result.aiSummariesSkipped += 1;
-          result.aiSummaryFailures +=
-            saved.summaryError &&
-            saved.summaryError !== OPENAI_NOT_CONFIGURED_ERROR
-              ? 1
-              : 0;
-        }
+        result.aiSummariesSkipped += 1;
+        result.aiSummaryFailures += saved.summaryError ? 1 : 0;
       }
 
       if (saved.change) {

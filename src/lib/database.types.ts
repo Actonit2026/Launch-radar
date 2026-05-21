@@ -109,6 +109,10 @@ export type Database = {
           monitored_page_id: string;
           raw_text: string;
           hash: string;
+          raw_content_hash: string | null;
+          canonical_content_hash: string | null;
+          structured_facts_hash: string | null;
+          structured_facts_json: Json;
           created_at: string;
         };
         Insert: {
@@ -116,6 +120,10 @@ export type Database = {
           monitored_page_id: string;
           raw_text: string;
           hash: string;
+          raw_content_hash?: string | null;
+          canonical_content_hash?: string | null;
+          structured_facts_hash?: string | null;
+          structured_facts_json?: Json;
           created_at?: string;
         };
         Update: {
@@ -123,6 +131,10 @@ export type Database = {
           monitored_page_id?: string;
           raw_text?: string;
           hash?: string;
+          raw_content_hash?: string | null;
+          canonical_content_hash?: string | null;
+          structured_facts_hash?: string | null;
+          structured_facts_json?: Json;
           created_at?: string;
         };
         Relationships: [
@@ -141,6 +153,9 @@ export type Database = {
           monitored_page_id: string;
           diff_summary: string;
           severity: Database["public"]["Enums"]["change_severity"];
+          change_type: string | null;
+          confidence_score: number | null;
+          evidence_json: Json;
           created_at: string;
         };
         Insert: {
@@ -148,6 +163,9 @@ export type Database = {
           monitored_page_id: string;
           diff_summary: string;
           severity?: Database["public"]["Enums"]["change_severity"];
+          change_type?: string | null;
+          confidence_score?: number | null;
+          evidence_json?: Json;
           created_at?: string;
         };
         Update: {
@@ -155,6 +173,9 @@ export type Database = {
           monitored_page_id?: string;
           diff_summary?: string;
           severity?: Database["public"]["Enums"]["change_severity"];
+          change_type?: string | null;
+          confidence_score?: number | null;
+          evidence_json?: Json;
           created_at?: string;
         };
         Relationships: [
