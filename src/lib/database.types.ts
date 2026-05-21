@@ -208,6 +208,53 @@ export type Database = {
           },
         ];
       };
+      scan_debug_logs: {
+        Row: {
+          id: string;
+          competitor_id: string;
+          run_type: "initial_setup" | "manual_analysis" | "manual_scan";
+          status: "success" | "partial" | "failed";
+          normalized_url: string | null;
+          submitted_url: string | null;
+          payload: Json;
+          warnings: string[];
+          errors: string[];
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          competitor_id: string;
+          run_type: "initial_setup" | "manual_analysis" | "manual_scan";
+          status: "success" | "partial" | "failed";
+          normalized_url?: string | null;
+          submitted_url?: string | null;
+          payload?: Json;
+          warnings?: string[];
+          errors?: string[];
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          competitor_id?: string;
+          run_type?: "initial_setup" | "manual_analysis" | "manual_scan";
+          status?: "success" | "partial" | "failed";
+          normalized_url?: string | null;
+          submitted_url?: string | null;
+          payload?: Json;
+          warnings?: string[];
+          errors?: string[];
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "scan_debug_logs_competitor_id_fkey";
+            columns: ["competitor_id"];
+            isOneToOne: false;
+            referencedRelation: "competitors";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -233,4 +280,6 @@ export type DetectedChange =
   Database["public"]["Tables"]["detected_changes"]["Row"];
 export type CompetitorIntelligenceSnapshot =
   Database["public"]["Tables"]["competitor_intelligence_snapshots"]["Row"];
+export type ScanDebugLog =
+  Database["public"]["Tables"]["scan_debug_logs"]["Row"];
 export type PageType = Database["public"]["Enums"]["page_type"];

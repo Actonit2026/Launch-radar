@@ -21,6 +21,12 @@ import {
   updateCompetitorScanStatus,
 } from "@/lib/intelligence/persistence";
 import {
+  buildInitialSetupDebugPayload,
+  buildManualAnalysisDebugPayload,
+  buildManualScanDebugPayload,
+  saveScanDebugLog,
+} from "@/lib/scan-debug";
+import {
   notificationForPage,
   sendChangeNotification,
   type ChangeNotificationContext,
@@ -52,6 +58,21 @@ type ScanResult = {
 
 type ScannerResult<T> = {
   data: T | null;
+  error?: string;
+};
+
+type ManualScanDebugOutcome = {
+  url: string;
+  page_type: PageType;
+  fetch_status: number | null;
+  ok: boolean;
+  snapshot_created?: boolean;
+  changed?: boolean;
+  change_created?: boolean;
+  summary_source?: "openai" | "heuristic" | null;
+  summary_error?: string | null;
+  notification_sent?: boolean;
+  notification_skipped?: boolean;
   error?: string;
 };
 
@@ -270,6 +291,29 @@ export async function createInitialMonitoringSetup(
       status: "failed",
       error: pagesError.message,
     });
+    await saveScanDebugLog({
+      supabase,
+      competitorId,
+      runType: "initial_setup",
+      status: "failed",
+      normalizedUrl: baseUrl,
+      submittedUrl: options?.submittedPageUrl ?? null,
+      payload: buildInitialSetupDebugPayload({
+        baseUrl,
+        submittedPageUrl: options?.submittedPageUrl,
+        discoveredPages,
+        monitoredPages: [],
+        intelligencePages: [],
+        summary: null,
+        result: {
+          pagesCreated: 0,
+          snapshotsCreated: 0,
+          intelligenceSnapshotCreated: false,
+        },
+      }),
+      warnings: crawlWarning ? [crawlWarning] : [],
+      errors: [pagesError.message],
+    });
 
     return { data: null, error: pagesError.message };
   }
@@ -331,6 +375,43 @@ export async function createInitialMonitoringSetup(
       ? crawlWarning ?? "No useful public pages found."
       : null,
   });
+  await saveScanDebugLog({
+    supabase,
+    competitorId,
+    runType: "initial_setup",
+    status: firstScanFailed
+      ? "failed"
+      : crawlWarning || intelligenceError
+        ? "partial"
+        : "success",
+    normalizedUrl: baseUrl,
+    submittedUrl: options?.submittedPageUrl ?? null,
+    payload: buildInitialSetupDebugPayload({
+      baseUrl,
+      submittedPageUrl: options?.submittedPageUrl,
+      discoveredPages,
+      monitoredPages: monitoredPages ?? [],
+      intelligencePages,
+      summary: intelligenceSummary,
+      result: {
+        pagesCreated: monitoredPages?.length ?? 0,
+        snapshotsCreated,
+        intelligenceSnapshotCreated,
+      },
+    }),
+    warnings: [
+      ...(crawlWarning ? [crawlWarning] : []),
+      ...intelligencePages.flatMap((page) => page.warnings),
+      ...intelligenceSummary.warnings,
+      ...intelligenceSummary.unknowns,
+    ],
+    errors:
+      firstScanFailed || intelligenceError
+        ? [crawlWarning, intelligenceError, firstScanFailed ? "No useful public pages found." : null].filter(
+            (value): value is string => Boolean(value),
+          )
+        : [],
+  });
 
   return {
     data: {
@@ -380,6 +461,25 @@ export async function rerunCompetitorIntelligence(
       status: "failed",
       error: pagesError.message,
     });
+    await saveScanDebugLog({
+      supabase,
+      competitorId,
+      runType: "manual_analysis",
+      status: "failed",
+      payload: buildManualAnalysisDebugPayload({
+        monitoredPages: [],
+        scrapes: [],
+        intelligencePages: [],
+        summary: null,
+        result: {
+          pagesAnalyzed: 0,
+          intelligenceSnapshotCreated: false,
+          baselineSnapshotsCreated: 0,
+          failed: 1,
+        },
+      }),
+      errors: [pagesError.message],
+    });
 
     return { data: null, error: pagesError.message };
   }
@@ -394,6 +494,25 @@ export async function rerunCompetitorIntelligence(
       competitorId,
       status: "failed",
       error,
+    });
+    await saveScanDebugLog({
+      supabase,
+      competitorId,
+      runType: "manual_analysis",
+      status: "failed",
+      payload: buildManualAnalysisDebugPayload({
+        monitoredPages: [],
+        scrapes: [],
+        intelligencePages: [],
+        summary: null,
+        result: {
+          pagesAnalyzed: 0,
+          intelligenceSnapshotCreated: false,
+          baselineSnapshotsCreated: 0,
+          failed: 1,
+        },
+      }),
+      errors: [error],
     });
 
     return { data: null, error };
@@ -445,6 +564,26 @@ export async function rerunCompetitorIntelligence(
       status: "failed",
       error,
     });
+    await saveScanDebugLog({
+      supabase,
+      competitorId,
+      runType: "manual_analysis",
+      status: "failed",
+      payload: buildManualAnalysisDebugPayload({
+        monitoredPages: pages,
+        scrapes,
+        intelligencePages,
+        summary: null,
+        result: {
+          pagesAnalyzed: 0,
+          intelligenceSnapshotCreated: false,
+          baselineSnapshotsCreated,
+          failed,
+        },
+      }),
+      warnings,
+      errors: [error],
+    });
 
     return { data: null, error };
   }
@@ -471,6 +610,31 @@ export async function rerunCompetitorIntelligence(
       status: "failed",
       error: intelligenceError,
     });
+    await saveScanDebugLog({
+      supabase,
+      competitorId,
+      runType: "manual_analysis",
+      status: "failed",
+      payload: buildManualAnalysisDebugPayload({
+        monitoredPages: pages,
+        scrapes,
+        intelligencePages,
+        summary: intelligenceSummary,
+        result: {
+          pagesAnalyzed: intelligencePages.length,
+          intelligenceSnapshotCreated,
+          baselineSnapshotsCreated,
+          failed,
+        },
+      }),
+      warnings: [
+        ...warnings,
+        ...intelligencePages.flatMap((page) => page.warnings),
+        ...intelligenceSummary.warnings,
+        ...intelligenceSummary.unknowns,
+      ],
+      errors: [intelligenceError],
+    });
 
     return { data: null, error: intelligenceError };
   }
@@ -479,6 +643,30 @@ export async function rerunCompetitorIntelligence(
     supabase,
     competitorId,
     status: "ready",
+  });
+  await saveScanDebugLog({
+    supabase,
+    competitorId,
+    runType: "manual_analysis",
+    status: failed || warnings.length ? "partial" : "success",
+    payload: buildManualAnalysisDebugPayload({
+      monitoredPages: pages,
+      scrapes,
+      intelligencePages,
+      summary: intelligenceSummary,
+      result: {
+        pagesAnalyzed: intelligencePages.length,
+        intelligenceSnapshotCreated,
+        baselineSnapshotsCreated,
+        failed,
+      },
+    }),
+    warnings: [
+      ...warnings,
+      ...intelligencePages.flatMap((page) => page.warnings),
+      ...intelligenceSummary.warnings,
+      ...intelligenceSummary.unknowns,
+    ],
   });
 
   return {
@@ -498,7 +686,7 @@ export async function scanMonitoredPagesForUser(
 ): Promise<ScannerResult<ScanResult>> {
   const { data: competitors, error: competitorsError } = await supabase
     .from("competitors")
-    .select("id, name")
+    .select("id, name, base_url")
     .eq("user_id", userId);
 
   if (competitorsError) {
@@ -549,7 +737,7 @@ export async function scanMonitoredPagesForUser(
   const competitorById = new Map(
     (competitors ?? []).map((competitor) => [
       competitor.id,
-      { name: competitor.name },
+      { name: competitor.name, baseUrl: competitor.base_url },
     ]),
   );
   const notificationContext: ChangeNotificationContext = {
@@ -558,6 +746,7 @@ export async function scanMonitoredPagesForUser(
   };
   const scrapes = await scrapePages(pages.map((page) => page.url));
   const scrapeByUrl = byRequestedUrl(scrapes);
+  const scanOutcomesByCompetitor = new Map<string, ManualScanDebugOutcome[]>();
   const result: ScanResult = {
     checked: 0,
     snapshotsCreated: 0,
@@ -573,14 +762,31 @@ export async function scanMonitoredPagesForUser(
     notificationFailures: [],
   };
 
+  function addScanOutcome(
+    competitorId: string,
+    outcome: ManualScanDebugOutcome,
+  ) {
+    const outcomes = scanOutcomesByCompetitor.get(competitorId) ?? [];
+    outcomes.push(outcome);
+    scanOutcomesByCompetitor.set(competitorId, outcomes);
+  }
+
   for (const monitoredPage of pages) {
     const scrape = scrapeByUrl.get(monitoredPage.url);
 
     if (!scrape || !scrape.ok) {
+      const error = scrapeFailureMessage(scrape);
       result.failed += 1;
       result.failures.push({
         url: monitoredPage.url,
-        error: scrapeFailureMessage(scrape),
+        error,
+      });
+      addScanOutcome(monitoredPage.competitor_id, {
+        url: monitoredPage.url,
+        page_type: monitoredPage.page_type,
+        fetch_status: scrape?.status ?? null,
+        ok: false,
+        error,
       });
       continue;
     }
@@ -596,6 +802,17 @@ export async function scanMonitoredPagesForUser(
       result.snapshotsCreated += saved.snapshotCreated ? 1 : 0;
       result.changed += saved.changed ? 1 : 0;
       result.changesCreated += saved.changeCreated ? 1 : 0;
+      const outcome: ManualScanDebugOutcome = {
+        url: monitoredPage.url,
+        page_type: monitoredPage.page_type,
+        fetch_status: scrape.status,
+        ok: true,
+        snapshot_created: saved.snapshotCreated,
+        changed: saved.changed,
+        change_created: saved.changeCreated,
+        summary_source: saved.summarySource,
+        summary_error: saved.summaryError,
+      };
 
       if (saved.changeCreated) {
         if (saved.summarySource === "openai") {
@@ -619,15 +836,20 @@ export async function scanMonitoredPagesForUser(
 
         if (!notification) {
           result.notificationsSkipped += 1;
+          outcome.notification_skipped = true;
         } else {
           const notificationResult =
             await sendChangeNotification(notification);
 
           if (notificationResult.sent) {
             result.notificationsSent += 1;
+            outcome.notification_sent = true;
           } else if (notificationResult.skipped) {
             result.notificationsSkipped += 1;
+            outcome.notification_skipped = true;
           } else {
+            outcome.error =
+              notificationResult.error ?? "Could not send email.";
             result.notificationFailures.push({
               url: monitoredPage.url,
               error: notificationResult.error ?? "Could not send email.",
@@ -635,13 +857,61 @@ export async function scanMonitoredPagesForUser(
           }
         }
       }
+
+      addScanOutcome(monitoredPage.competitor_id, outcome);
     } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Could not save scan.";
       result.failed += 1;
       result.failures.push({
         url: monitoredPage.url,
-        error: error instanceof Error ? error.message : "Could not save scan.",
+        error: message,
+      });
+      addScanOutcome(monitoredPage.competitor_id, {
+        url: monitoredPage.url,
+        page_type: monitoredPage.page_type,
+        fetch_status: scrape.status,
+        ok: false,
+        error: message,
       });
     }
+  }
+
+  for (const competitorId of competitorIds) {
+    const competitor = competitorById.get(competitorId);
+    const competitorPages = pages.filter(
+      (page) => page.competitor_id === competitorId,
+    );
+    const pageUrls = new Set(competitorPages.map((page) => page.url));
+    const competitorScrapes = scrapes.filter((scrape) =>
+      pageUrls.has(scrape.requestedUrl),
+    );
+    const outcomes = scanOutcomesByCompetitor.get(competitorId) ?? [];
+    const errors = outcomes
+      .map((outcome) => outcome.error)
+      .filter((value): value is string => Boolean(value));
+    const successCount = outcomes.filter((outcome) => outcome.ok).length;
+    const status: "success" | "partial" | "failed" =
+      errors.length && successCount
+        ? "partial"
+        : errors.length
+          ? "failed"
+          : "success";
+
+    await saveScanDebugLog({
+      supabase,
+      competitorId,
+      runType: "manual_scan",
+      status,
+      normalizedUrl: competitor?.baseUrl ?? null,
+      payload: buildManualScanDebugPayload({
+        pages: competitorPages,
+        scrapes: competitorScrapes,
+        outcomes,
+      }),
+      warnings: errors,
+      errors,
+    });
   }
 
   return { data: result };

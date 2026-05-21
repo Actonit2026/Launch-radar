@@ -5,6 +5,7 @@ import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
 import { IntelligenceSnapshotPanel } from "@/components/intelligence-snapshot-panel";
 import { ManualPageOverrideForm } from "@/components/manual-page-override-form";
 import { RunScanButton } from "@/components/run-scan-button";
+import { ScanDebugPanel } from "@/components/scan-debug-panel";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
 import { formatDateTime, formatPageType, severityClassName } from "@/lib/format";
@@ -81,7 +82,8 @@ export default async function CompetitorDetailPage({
     notFound();
   }
 
-  const { competitor, pages, changes, latestIntelligence } = result.data;
+  const { competitor, pages, changes, latestIntelligence, debugLogs } =
+    result.data;
   const intelligence = buildIntelligenceDisplay(latestIntelligence);
   const latestPageCheck = latestCheckedAt(pages);
   const helpActions = manualHelpActions(intelligence);
@@ -183,6 +185,8 @@ export default async function CompetitorDetailPage({
           <ManualPageOverrideForm competitorId={competitor.id} />
         </div>
       </section>
+
+      <ScanDebugPanel logs={debugLogs} />
 
       <section className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="rounded-lg border border-ink/10 bg-white p-5">

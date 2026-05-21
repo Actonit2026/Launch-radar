@@ -4,6 +4,7 @@ import type {
   CompetitorIntelligenceSnapshot,
   DetectedChange,
   MonitoredPage,
+  ScanDebugLog,
 } from "@/lib/database.types";
 import { formatDatabaseError } from "@/lib/errors";
 import { formatPageOrder } from "@/lib/format";
@@ -11,6 +12,10 @@ import {
   parseIntelligenceSnapshot,
   type IntelligenceSnapshotView,
 } from "@/lib/intelligence/display";
+import {
+  parseScanDebugLog,
+  type ScanDebugLogView,
+} from "@/lib/scan-debug";
 import { ensureUserProfile } from "@/lib/profiles";
 import { createClient } from "@/lib/supabase/server";
 
@@ -42,6 +47,7 @@ export type CompetitorDetail = {
   pages: MonitoredPage[];
   changes: Array<DetectedChange & { page: MonitoredPage }>;
   latestIntelligence: IntelligenceSnapshotView | null;
+  debugLogs: ScanDebugLogView[];
 };
 
 type DataResult<T> = {
@@ -80,6 +86,10 @@ function latestSnapshotsByCompetitor(
   }
 
   return latestByCompetitor;
+}
+
+function parseDebugLogs(logs: ScanDebugLog[]) {
+  return logs.map(parseScanDebugLog);
 }
 
 export async function getDashboardData(
@@ -306,12 +316,24 @@ export async function getCompetitorDetail(
     return { data: null, error: formatDatabaseError(intelligenceError.message) };
   }
 
+  const { data: debugLogs, error: debugLogsError } = await supabase
+    .from("scan_debug_logs")
+    .select("*")
+    .eq("competitor_id", competitor.id)
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (debugLogsError) {
+    return { data: null, error: formatDatabaseError(debugLogsError.message) };
+  }
+
   return {
     data: {
       competitor,
       pages: pageRows,
       changes: changesWithPages,
       latestIntelligence: parseIntelligenceSnapshot(intelligenceSnapshot),
+      debugLogs: parseDebugLogs(debugLogs ?? []),
     },
   };
 }
