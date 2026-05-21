@@ -81,6 +81,12 @@ export default async function DashboardPage() {
             planLabel={data?.plan.label ?? "Free"}
           />
           <Link
+            href="/dashboard/your-product"
+            className="inline-flex h-11 items-center justify-center rounded-md border border-ink/15 bg-white px-5 text-sm font-semibold text-ink transition hover:border-ink/35"
+          >
+            Your Product
+          </Link>
+          <Link
             href="/dashboard/settings"
             className="inline-flex h-11 items-center justify-center rounded-md border border-ink/15 bg-white px-5 text-sm font-semibold text-ink transition hover:border-ink/35"
           >

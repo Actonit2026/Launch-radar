@@ -294,6 +294,200 @@ export type Database = {
           },
         ];
       };
+      user_products: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          base_url: string;
+          scan_status: "pending" | "running" | "ready" | "failed" | "deferred";
+          error_message: string | null;
+          last_scanned_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          base_url: string;
+          scan_status?: "pending" | "running" | "ready" | "failed" | "deferred";
+          error_message?: string | null;
+          last_scanned_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          base_url?: string;
+          scan_status?: "pending" | "running" | "ready" | "failed" | "deferred";
+          error_message?: string | null;
+          last_scanned_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_products_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      product_snapshots: {
+        Row: {
+          id: string;
+          user_product_id: string;
+          user_id: string;
+          summary_json: Json;
+          structured_facts_json: Json;
+          analyzed_pages: Json;
+          warnings: string[];
+          source: "openai" | "deterministic";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_product_id: string;
+          user_id: string;
+          summary_json: Json;
+          structured_facts_json?: Json;
+          analyzed_pages?: Json;
+          warnings?: string[];
+          source?: "openai" | "deterministic";
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_product_id?: string;
+          user_id?: string;
+          summary_json?: Json;
+          structured_facts_json?: Json;
+          analyzed_pages?: Json;
+          warnings?: string[];
+          source?: "openai" | "deterministic";
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "product_snapshots_user_product_id_fkey";
+            columns: ["user_product_id"];
+            isOneToOne: false;
+            referencedRelation: "user_products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "product_snapshots_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      product_recommendations: {
+        Row: {
+          id: string;
+          user_product_id: string;
+          user_id: string;
+          recommendation_type: string;
+          title: string;
+          explanation: string;
+          why_this_matters: string;
+          evidence_json: Json;
+          confidence: number;
+          confidence_label: "very_low" | "low" | "medium" | "high" | "very_high";
+          actionability: "low" | "medium" | "high";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_product_id: string;
+          user_id: string;
+          recommendation_type: string;
+          title: string;
+          explanation: string;
+          why_this_matters: string;
+          evidence_json?: Json;
+          confidence: number;
+          confidence_label: "very_low" | "low" | "medium" | "high" | "very_high";
+          actionability: "low" | "medium" | "high";
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_product_id?: string;
+          user_id?: string;
+          recommendation_type?: string;
+          title?: string;
+          explanation?: string;
+          why_this_matters?: string;
+          evidence_json?: Json;
+          confidence?: number;
+          confidence_label?: "very_low" | "low" | "medium" | "high" | "very_high";
+          actionability?: "low" | "medium" | "high";
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "product_recommendations_user_product_id_fkey";
+            columns: ["user_product_id"];
+            isOneToOne: false;
+            referencedRelation: "user_products";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "product_recommendations_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      recommendation_feedback: {
+        Row: {
+          id: string;
+          recommendation_id: string;
+          user_id: string;
+          feedback: "useful" | "not_useful" | "already_knew" | "implemented";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          recommendation_id: string;
+          user_id: string;
+          feedback: "useful" | "not_useful" | "already_knew" | "implemented";
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          recommendation_id?: string;
+          user_id?: string;
+          feedback?: "useful" | "not_useful" | "already_knew" | "implemented";
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "recommendation_feedback_recommendation_id_fkey";
+            columns: ["recommendation_id"];
+            isOneToOne: false;
+            referencedRelation: "product_recommendations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "recommendation_feedback_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -321,4 +515,10 @@ export type CompetitorIntelligenceSnapshot =
   Database["public"]["Tables"]["competitor_intelligence_snapshots"]["Row"];
 export type ScanDebugLog =
   Database["public"]["Tables"]["scan_debug_logs"]["Row"];
+export type UserProduct =
+  Database["public"]["Tables"]["user_products"]["Row"];
+export type ProductSnapshot =
+  Database["public"]["Tables"]["product_snapshots"]["Row"];
+export type ProductRecommendation =
+  Database["public"]["Tables"]["product_recommendations"]["Row"];
 export type PageType = Database["public"]["Enums"]["page_type"];

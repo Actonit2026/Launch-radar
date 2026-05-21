@@ -38,12 +38,20 @@ export default async function SettingsPage() {
   return (
     <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-4xl flex-col gap-6 px-6 py-10">
       <section className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
-        <Link
-          href="/dashboard"
-          className="text-sm font-semibold text-moss transition hover:text-moss/80"
-        >
-          Back to dashboard
-        </Link>
+        <div className="flex flex-wrap gap-3 text-sm font-semibold">
+          <Link
+            href="/dashboard"
+            className="text-moss transition hover:text-moss/80"
+          >
+            Back to dashboard
+          </Link>
+          <Link
+            href="/dashboard/your-product"
+            className="text-ink/55 transition hover:text-ink"
+          >
+            Your Product
+          </Link>
+        </div>
         <h1 className="mt-3 text-3xl font-semibold text-ink">Settings</h1>
         <p className="mt-2 text-sm leading-6 text-ink/60">
           Manage your account, plan, and scan expectations.

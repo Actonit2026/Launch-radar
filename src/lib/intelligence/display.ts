@@ -1,7 +1,4 @@
-import type {
-  CompetitorIntelligenceSnapshot,
-  Json,
-} from "@/lib/database.types";
+import type { CompetitorIntelligenceSnapshot, Json } from "@/lib/database.types";
 import type { Confidence } from "@/lib/intelligence/types";
 
 export const LIMITED_DATA_MESSAGE =
@@ -48,6 +45,17 @@ export type IntelligenceSnapshotView = {
   facts: IntelligenceFactView[];
   analyzedPages: AnalyzedPageView[];
   warnings: string[];
+};
+
+type PersistedIntelligenceSnapshot = Pick<
+  CompetitorIntelligenceSnapshot,
+  "id" | "created_at" | "source" | "warnings"
+> & {
+  summary?: Json;
+  summary_json?: Json;
+  facts?: Json;
+  structured_facts_json?: Json;
+  analyzed_pages: Json;
 };
 
 export type IntelligenceSectionView = {
@@ -187,19 +195,22 @@ function parseAnalyzedPage(value: unknown): AnalyzedPageView | null {
 }
 
 export function parseIntelligenceSnapshot(
-  row: CompetitorIntelligenceSnapshot | null | undefined,
+  row: PersistedIntelligenceSnapshot | null | undefined,
 ): IntelligenceSnapshotView | null {
   if (!row) {
     return null;
   }
 
+  const summary = row.summary ?? row.summary_json ?? {};
+  const facts = row.facts ?? row.structured_facts_json ?? [];
+
   return {
     id: row.id,
     createdAt: row.created_at,
     source: row.source,
-    summary: parseSummary(row.summary),
-    facts: Array.isArray(row.facts)
-      ? row.facts.map(parseFact).filter((fact): fact is IntelligenceFactView =>
+    summary: parseSummary(summary),
+    facts: Array.isArray(facts)
+      ? facts.map(parseFact).filter((fact): fact is IntelligenceFactView =>
           Boolean(fact),
         )
       : [],
