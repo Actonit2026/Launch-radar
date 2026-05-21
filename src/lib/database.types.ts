@@ -13,16 +13,34 @@ export type Database = {
         Row: {
           id: string;
           email: string;
+          plan: "free" | "pro";
+          competitor_limit: number;
+          scan_interval_hours: number;
+          subscription_status: string;
+          current_period_end: string | null;
+          billing_customer_id: string | null;
           created_at: string;
         };
         Insert: {
           id: string;
           email: string;
+          plan?: "free" | "pro";
+          competitor_limit?: number;
+          scan_interval_hours?: number;
+          subscription_status?: string;
+          current_period_end?: string | null;
+          billing_customer_id?: string | null;
           created_at?: string;
         };
         Update: {
           id?: string;
           email?: string;
+          plan?: "free" | "pro";
+          competitor_limit?: number;
+          scan_interval_hours?: number;
+          subscription_status?: string;
+          current_period_end?: string | null;
+          billing_customer_id?: string | null;
           created_at?: string;
         };
         Relationships: [];

@@ -22,6 +22,12 @@ export default function RootLayout({
             </Link>
             <div className="flex items-center gap-2">
               <Link
+                href="/pricing"
+                className="rounded-md px-4 py-2 text-sm font-semibold text-ink/75 transition hover:text-ink"
+              >
+                Pricing
+              </Link>
+              <Link
                 href="/login"
                 className="rounded-md px-4 py-2 text-sm font-semibold text-ink/75 transition hover:text-ink"
               >

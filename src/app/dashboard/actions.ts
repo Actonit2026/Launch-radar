@@ -13,6 +13,7 @@ import {
   parseManualPageUrl,
 } from "@/lib/urls";
 import { ensureUserProfile } from "@/lib/profiles";
+import { isAtCompetitorLimit, planViewFromUser } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 import {
   isSupabaseConfigured,
@@ -122,6 +123,38 @@ export async function createCompetitorAction(
 
   if (profileError) {
     return { error: profileError };
+  }
+
+  const [{ data: profile, error: profileQueryError }, { count, error: countError }] =
+    await Promise.all([
+      supabase
+        .from("users")
+        .select(
+          "plan, competitor_limit, scan_interval_hours, subscription_status, current_period_end",
+        )
+        .eq("id", user.id)
+        .maybeSingle(),
+      supabase
+        .from("competitors")
+        .select("id", { count: "exact", head: true })
+        .eq("user_id", user.id),
+    ]);
+
+  if (profileQueryError) {
+    return { error: profileQueryError.message };
+  }
+
+  if (countError) {
+    return { error: countError.message };
+  }
+
+  const plan = planViewFromUser(profile);
+  const competitorCount = count ?? 0;
+
+  if (isAtCompetitorLimit({ competitorCount, plan })) {
+    return {
+      error: `${plan.label} plan limit reached: ${competitorCount}/${plan.competitorLimit} competitors tracked. Upgrade to Pro to track up to 20 competitors.`,
+    };
   }
 
   const { data: competitor, error: competitorError } = await supabase

@@ -17,6 +17,7 @@ import {
   type ScanDebugLogView,
 } from "@/lib/scan-debug";
 import { ensureUserProfile } from "@/lib/profiles";
+import { planViewFromUser, type UserPlanView } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 
 export type DashboardCompetitor = Competitor & {
@@ -35,6 +36,9 @@ export type RecentChange = DetectedChange & {
 export type DashboardData = {
   competitors: DashboardCompetitor[];
   recentChanges: RecentChange[];
+  plan: UserPlanView & {
+    competitorCount: number;
+  };
   stats: {
     competitors: number;
     trackedPages: number;
@@ -100,6 +104,21 @@ export async function getDashboardData(
 
   if (profileError) {
     return { data: null, error: profileError };
+  }
+
+  const { data: profile, error: profileQueryError } = await supabase
+    .from("users")
+    .select(
+      "plan, competitor_limit, scan_interval_hours, subscription_status, current_period_end",
+    )
+    .eq("id", user.id)
+    .maybeSingle();
+
+  if (profileQueryError) {
+    return {
+      data: null,
+      error: formatDatabaseError(profileQueryError.message),
+    };
   }
 
   const { data: competitors, error: competitorsError } = await supabase
@@ -232,6 +251,10 @@ export async function getDashboardData(
     data: {
       competitors: competitorsWithPages,
       recentChanges,
+      plan: {
+        ...planViewFromUser(profile),
+        competitorCount: competitorRows.length,
+      },
       stats: {
         competitors: competitorRows.length,
         trackedPages: pageRows.length,

@@ -1,14 +1,26 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import {
   createCompetitorAction,
   type CompetitorFormState,
 } from "@/app/dashboard/actions";
 
-export function AddCompetitorDialog() {
+type AddCompetitorDialogProps = {
+  competitorCount?: number;
+  competitorLimit?: number;
+  planLabel?: string;
+};
+
+export function AddCompetitorDialog({
+  competitorCount = 0,
+  competitorLimit = 3,
+  planLabel = "Free",
+}: AddCompetitorDialogProps) {
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
+  const atLimit = competitorCount >= competitorLimit;
   const [state, formAction, isPending] = useActionState<
     CompetitorFormState,
     FormData
@@ -23,13 +35,22 @@ export function AddCompetitorDialog() {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex h-11 items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
-      >
-        Add competitor
-      </button>
+      {atLimit ? (
+        <Link
+          href="/pricing"
+          className="inline-flex h-11 items-center justify-center rounded-md bg-coral px-5 text-sm font-semibold text-white transition hover:bg-coral/90"
+        >
+          Upgrade to add more
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="inline-flex h-11 items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+        >
+          Add competitor
+        </button>
+      )}
 
       {open ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/35 px-4 py-6">
@@ -61,6 +82,11 @@ export function AddCompetitorDialog() {
             </div>
 
             <form ref={formRef} action={formAction} className="mt-6 space-y-5">
+              <p className="rounded-md bg-paper p-3 text-sm leading-6 text-ink/65">
+                {planLabel} plan: {competitorCount}/{competitorLimit}{" "}
+                competitors tracked.
+              </p>
+
               <label className="block">
                 <span className="text-sm font-medium text-ink/75">Name</span>
                 <input

@@ -33,6 +33,7 @@ export default async function SettingsPage() {
   }
 
   const competitorCount = result.data?.stats.competitors ?? 0;
+  const plan = result.data?.plan;
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-4xl flex-col gap-6 px-6 py-10">
@@ -78,20 +79,29 @@ export default async function SettingsPage() {
           <dl className="mt-4 space-y-3 text-sm">
             <div>
               <dt className="font-medium text-ink/55">Current plan</dt>
-              <dd className="mt-1 text-ink">Free</dd>
+              <dd className="mt-1 text-ink">{plan?.label ?? "Free"}</dd>
             </div>
             <div>
               <dt className="font-medium text-ink/55">Competitors tracked</dt>
-              <dd className="mt-1 text-ink">{competitorCount}/3</dd>
+              <dd className="mt-1 text-ink">
+                {competitorCount}/{plan?.competitorLimit ?? 3}
+              </dd>
             </div>
             <div>
               <dt className="font-medium text-ink/55">Refresh cadence</dt>
               <dd className="mt-1 text-ink">
-                Initial scan on add, then daily refresh when scheduler limits
+                Initial scan on add, then every{" "}
+                {plan?.scanIntervalHours ?? 24} hours when scheduler limits
                 allow.
               </dd>
             </div>
           </dl>
+          <Link
+            href="/pricing"
+            className="mt-5 inline-flex h-11 items-center justify-center rounded-md bg-moss px-4 text-sm font-semibold text-white transition hover:bg-moss/90"
+          >
+            View upgrade options
+          </Link>
           <p className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
             Pro billing is not enabled yet. Phase 4 will enforce plan limits and
             add the upgrade path without faking subscriptions.

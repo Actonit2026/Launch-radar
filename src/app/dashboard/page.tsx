@@ -75,7 +75,11 @@ export default async function DashboardPage() {
         </div>
         <div className="flex flex-wrap gap-3">
           <RunScanButton />
-          <AddCompetitorDialog />
+          <AddCompetitorDialog
+            competitorCount={data?.plan.competitorCount ?? 0}
+            competitorLimit={data?.plan.competitorLimit ?? 3}
+            planLabel={data?.plan.label ?? "Free"}
+          />
           <Link
             href="/dashboard/settings"
             className="inline-flex h-11 items-center justify-center rounded-md border border-ink/15 bg-white px-5 text-sm font-semibold text-ink transition hover:border-ink/35"
@@ -89,6 +93,29 @@ export default async function DashboardPage() {
           </form>
         </div>
       </section>
+
+      {data ? (
+        <section className="rounded-lg border border-moss/15 bg-white p-5">
+          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+            <div>
+              <p className="text-sm font-semibold text-ink">
+                {data.plan.label} plan: {data.plan.competitorCount}/
+                {data.plan.competitorLimit} competitors tracked
+              </p>
+              <p className="mt-2 text-sm leading-6 text-ink/60">
+                Upgrade to Pro for 20 competitors, 12-hour refreshes, email
+                alerts, and Your Product recommendations.
+              </p>
+            </div>
+            <Link
+              href="/pricing"
+              className="inline-flex h-11 items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+            >
+              View plans
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-lg border border-ink/10 bg-white p-5">
