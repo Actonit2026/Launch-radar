@@ -140,15 +140,34 @@ function competitorSupportByField(
 }
 
 function hasConsensus(supports: CompetitorSupport[]) {
-  if (supports.length >= 2) {
-    return true;
+  const requirement = consensusRequirement(supports);
+
+  return supports.length >= requirement;
+}
+
+function averageSupportConfidence(supports: CompetitorSupport[]) {
+  return (
+    supports.reduce((sum, support) => sum + support.fact.confidence_score, 0) /
+    Math.max(1, supports.length)
+  );
+}
+
+function consensusRequirement(supports: CompetitorSupport[]) {
+  const average = averageSupportConfidence(supports);
+
+  if (average >= 0.9) {
+    return 1;
   }
 
-  const only = supports[0]?.fact;
+  if (average >= 0.75) {
+    return 2;
+  }
 
-  return Boolean(
-    only && only.confidence === "high" && only.confidence_score >= 0.92,
-  );
+  if (average >= 0.6) {
+    return 3;
+  }
+
+  return 4;
 }
 
 function evidenceFromUser(fact: StructuredFact): EvidenceItem {
@@ -196,9 +215,7 @@ function recommendationConfidence(
   userFact: StructuredFact,
   supports: CompetitorSupport[],
 ) {
-  const averageCompetitorConfidence =
-    supports.reduce((sum, support) => sum + support.fact.confidence_score, 0) /
-    Math.max(1, supports.length);
+  const averageCompetitorConfidence = averageSupportConfidence(supports);
   const raw =
     48 +
     Math.min(supports.length, 4) * 9 +
@@ -206,6 +223,105 @@ function recommendationConfidence(
     averageCompetitorConfidence * 20;
 
   return Math.min(96, Math.round(raw));
+}
+
+function actionabilityScore(actionability: "medium" | "high") {
+  return actionability === "high" ? 0.86 : 0.68;
+}
+
+function impactScore(type: string) {
+  switch (type) {
+    case "pricing_visibility":
+      return 0.78;
+    case "cta_clarity":
+      return 0.72;
+    case "positioning_specificity":
+      return 0.76;
+    default:
+      return 0.62;
+  }
+}
+
+function effortScore(type: string) {
+  switch (type) {
+    case "cta_clarity":
+      return 0.34;
+    case "positioning_specificity":
+      return 0.5;
+    case "pricing_visibility":
+      return 0.64;
+    default:
+      return 0.7;
+  }
+}
+
+function noveltyScore({
+  title,
+  supports,
+}: {
+  title: string;
+  supports: CompetitorSupport[];
+}) {
+  const genericTitles = [
+    "improve cta",
+    "add pricing",
+    "clarify positioning",
+    "improve onboarding",
+    "add features",
+  ];
+  const normalizedTitle = title.toLowerCase();
+
+  if (genericTitles.some((generic) => normalizedTitle === generic)) {
+    return 0.2;
+  }
+
+  const distinctSignals = new Set(
+    supports.map((support) => support.fact.value.toLowerCase().trim()),
+  ).size;
+
+  return Math.min(0.94, 0.54 + distinctSignals * 0.12 + supports.length * 0.06);
+}
+
+function priorityScore({
+  type,
+  confidence,
+  actionability,
+}: {
+  type: string;
+  confidence: number;
+  actionability: "medium" | "high";
+}) {
+  const priority =
+    ((actionabilityScore(actionability) *
+      impactScore(type) *
+      (confidence / 100)) /
+      effortScore(type)) *
+    100;
+
+  return Math.min(100, Math.round(priority));
+}
+
+function visibilityForConfidence(score: number) {
+  if (score >= 90) {
+    return "highlight";
+  }
+
+  if (score >= 75) {
+    return "normal";
+  }
+
+  return "collapsed";
+}
+
+function competitorConsensusSummary(supports: CompetitorSupport[]) {
+  const requirement = consensusRequirement(supports);
+
+  return {
+    supporting_competitors: supports.length,
+    required_competitors: requirement,
+    average_confidence: Number(averageSupportConfidence(supports).toFixed(2)),
+    satisfied: supports.length >= requirement,
+  };
 }
 
 function createRecommendation({
@@ -232,8 +348,14 @@ function createRecommendation({
   }
 
   const score = recommendationConfidence(userFact, supports);
+  const novelty = noveltyScore({ title, supports });
+  const priority = priorityScore({
+    type,
+    confidence: score,
+    actionability,
+  });
 
-  if (score < 60) {
+  if (score < 60 || novelty < 0.6 || priority < 35) {
     return null;
   }
 
@@ -251,6 +373,23 @@ function createRecommendation({
         .join("; "),
       interpretation: reasoning,
       reasoning,
+      recommendation: title,
+      trust: {
+        confidence: score,
+        confidence_label: confidenceLabel(score),
+        actionability_score: actionabilityScore(actionability),
+        impact_score: impactScore(type),
+        effort_score: effortScore(type),
+        novelty_score: Number(novelty.toFixed(2)),
+        priority_score: priority,
+        visibility: visibilityForConfidence(score),
+        consensus: competitorConsensusSummary(supports),
+      },
+      trend: {
+        status: "insufficient_history",
+        time_window: "latest_baselines",
+        note: "Trend confidence requires future scan history; this recommendation uses current verified baselines only.",
+      },
     },
     confidence: score,
     confidence_label: confidenceLabel(score),

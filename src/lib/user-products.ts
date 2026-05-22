@@ -228,6 +228,24 @@ export async function analyzeUserProduct({
       if (recommendationsError) {
         throw new Error(recommendationsError.message);
       }
+
+      await recordUsageEvent({
+        supabase,
+        userId,
+        eventType: "recommendations_generated",
+        quantity: recommendations.length,
+        metadata: {
+          product_id: productId,
+          recommendation_types: recommendations.map(
+            (recommendation) => recommendation.recommendation_type,
+          ),
+          confidence: recommendations.map((recommendation) => ({
+            type: recommendation.recommendation_type,
+            score: recommendation.confidence,
+            label: recommendation.confidence_label,
+          })),
+        },
+      });
     }
 
     await updateProductScanStatus({

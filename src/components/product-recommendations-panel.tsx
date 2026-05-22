@@ -14,6 +14,15 @@ type EvidenceItem = {
   evidence_text?: string;
 };
 
+type RecommendationTrust = {
+  priority_score?: number;
+  visibility?: string;
+  consensus?: {
+    supporting_competitors?: number;
+    required_competitors?: number;
+  };
+};
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
@@ -26,6 +35,9 @@ function evidenceList(value: unknown): EvidenceItem[] {
 
 function parseEvidence(value: Json) {
   const evidence = isRecord(value) ? value : {};
+  const trust = isRecord(evidence.trust)
+    ? (evidence.trust as RecommendationTrust)
+    : null;
 
   return {
     userEvidence: evidenceList(evidence.user_evidence),
@@ -34,6 +46,7 @@ function parseEvidence(value: Json) {
       typeof evidence.interpretation === "string"
         ? evidence.interpretation
         : null,
+    trust,
   };
 }
 
@@ -188,6 +201,18 @@ export function ProductRecommendationsPanel({
                 <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink/55">
                   {recommendation.actionability} actionability
                 </span>
+                {typeof evidence.trust?.priority_score === "number" ? (
+                  <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink/55">
+                    {evidence.trust.priority_score}/100 priority
+                  </span>
+                ) : null}
+                {evidence.trust?.consensus?.supporting_competitors &&
+                evidence.trust.consensus.required_competitors ? (
+                  <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink/55">
+                    {evidence.trust.consensus.supporting_competitors}/
+                    {evidence.trust.consensus.required_competitors} consensus
+                  </span>
+                ) : null}
               </div>
               <h3 className="mt-3 text-lg font-semibold text-ink">
                 {recommendation.title}

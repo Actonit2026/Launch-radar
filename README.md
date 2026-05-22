@@ -77,6 +77,19 @@ This phase adds:
 
 Run `supabase/migrations/0004_intelligence_snapshots.sql` to persist intelligence snapshots and scan status in Supabase.
 
+## Production Readiness Additions
+
+The current build also includes:
+
+- URL-first competitor setup with evidence-backed page discovery and structured analysis
+- Meaningful change detection that ignores casing, whitespace, punctuation, boilerplate, and raw HTML noise
+- Cached real homepage examples so public visitors do not trigger scans
+- Improved signup, login, email confirmation, forgot-password, and reset-password flows
+- Free and Pro plan limits, upgrade prompts, and Stripe Checkout/Portal wiring
+- Your Product analysis with evidence-backed competitor comparison recommendations
+- Recommendation trust gates for consensus, confidence, novelty, actionability, priority, and feedback tracking
+- Usage events, AI summary caching, scan limits, and global budget guardrails
+
 ## Local Setup
 
 1. Copy `.env.example` to `.env.local`.

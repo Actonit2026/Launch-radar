@@ -8,7 +8,7 @@ import {
   isSupabaseConfigured,
   supabaseConfigMessage,
 } from "@/lib/supabase/config";
-import { canRunProductScan } from "@/lib/usage";
+import { canRunProductScan, recordUsageEvent } from "@/lib/usage";
 import { analyzeUserProduct } from "@/lib/user-products";
 import { parseCompetitorUrl } from "@/lib/urls";
 
@@ -264,7 +264,7 @@ export async function saveRecommendationFeedbackAction(formData: FormData) {
 
   const supabase = await createClient();
 
-  await supabase.from("recommendation_feedback").upsert(
+  const { error } = await supabase.from("recommendation_feedback").upsert(
     {
       recommendation_id: recommendationId,
       user_id: user.id,
@@ -276,6 +276,18 @@ export async function saveRecommendationFeedbackAction(formData: FormData) {
     },
     { onConflict: "recommendation_id,user_id" },
   );
+
+  if (!error) {
+    await recordUsageEvent({
+      supabase,
+      userId: user.id,
+      eventType: "recommendation_feedback",
+      metadata: {
+        recommendation_id: recommendationId,
+        feedback,
+      },
+    });
+  }
 
   revalidatePath("/dashboard/your-product");
 }

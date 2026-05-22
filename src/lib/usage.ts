@@ -9,7 +9,9 @@ export type UsageEventType =
   | "manual_scan"
   | "manual_analysis"
   | "product_scan"
-  | "ai_summary";
+  | "ai_summary"
+  | "recommendations_generated"
+  | "recommendation_feedback";
 
 type UsageDecision = {
   allowed: boolean;
