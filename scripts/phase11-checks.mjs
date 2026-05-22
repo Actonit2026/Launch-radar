@@ -232,6 +232,7 @@ function scrapedPage({
   title = "Fixture page",
   rawText,
   links = [],
+  pageModel,
 }) {
   return {
     requestedUrl: url,
@@ -243,6 +244,7 @@ function scrapedPage({
     rawText,
     hash: `hash:${title}:${rawText.length}`,
     links,
+    ...(pageModel ? { pageModel } : {}),
   };
 }
 
@@ -267,6 +269,10 @@ try {
     parseCompetitorUrl,
     parseManualPageUrl,
   } = require(path.join(outDir, "src/lib/urls.js"));
+  const {
+    buildPageModel,
+    extractMeaningfulText,
+  } = require(path.join(outDir, "src/lib/crawler/text.js"));
   const { analyzePricing } = require(path.join(
     outDir,
     "src/lib/intelligence/pricing.js",
@@ -390,6 +396,82 @@ try {
     assert.equal(pricing.lowestPrice.normalized_value.amount, 29);
   });
 
+  check("detects plan-selector pricing with unclear billing period", () => {
+    const productHtml = html({
+      title: "PropAI - Freelance Proposal Generator That Matches Your Voice",
+      links: '<nav><a href="/login">Login to your dashboard</a></nav>',
+      body: [
+        "<section class=\"hero\"><h1>Freelance proposal generator that matches your voice</h1><p>Create personalized proposals from your writing samples for freelance clients.</p><a>Sign up free</a></section>",
+        "<form class=\"plan-selector\"><h2>Plus</h2><p>100 proposals/week</p><button>Get Plus - \u20AC5</button></form>",
+        "<section class=\"features\"><h2>Voice matching</h2><p>Generate proposals from your writing sample.</p><h2>Proposal generation</h2><p>Draft tailored client proposals fast.</p><h2>Personalized output</h2><p>Keep the wording close to your style.</p></section>",
+      ].join(""),
+    });
+    const model = buildPageModel(productHtml, "https://getpropai.com/");
+    const page = analyzePageIntelligence({
+      pageType: "homepage",
+      scrape: scrapedPage({
+        url: "https://getpropai.com/",
+        title: "PropAI - Freelance Proposal Generator That Matches Your Voice",
+        rawText: extractMeaningfulText(productHtml),
+        pageModel: model,
+        links: model.blocks.flatMap((block) => block.links),
+      }),
+    });
+
+    assert.equal(page.pricing.status, "found");
+    assert.equal(page.pricing.lowestPrice.normalized_value.amount, 5);
+    assert.equal(page.pricing.lowestPrice.normalized_value.currency, "EUR");
+    assert.equal(page.pricing.lowestPrice.normalized_value.period, undefined);
+    assert.match(page.pricing.lowestPrice.evidence_text, /\u20AC5|Get Plus/i);
+    assert.match(page.positioning.homepageHeadline.value, /proposal generator/i);
+    assert.doesNotMatch(page.positioning.homepageHeadline.value, /login|dashboard/i);
+    assert.ok(page.ctas.ctas.some((cta) => /sign up free/i.test(cta.value)));
+    assert.ok(page.features.features.some((feature) => /voice/i.test(feature.value)));
+    assert.ok(page.pricing.debug.candidates.length >= 1);
+    fieldsHaveEvidence(page.facts);
+  });
+
+  check("detects common V2 pricing patterns and rejects stats", () => {
+    const plus = analyzePricing(
+      scrapedPage({ rawText: "Plus\n100 proposals/week\nGet Plus - \u20AC5" }),
+      "homepage",
+    );
+    const pro = analyzePricing(
+      scrapedPage({ rawText: "Pricing\nPro \u20AC19/month\nBilled monthly" }),
+      "pricing",
+    );
+    const stats = analyzePricing(
+      scrapedPage({ rawText: "Trusted by 2,500 customers\n99.9% uptime\n24/7 support" }),
+      "homepage",
+    );
+
+    assert.equal(plus.status, "found");
+    assert.equal(plus.lowestPrice.normalized_value.amount, 5);
+    assert.equal(pro.lowestPrice.normalized_value.amount, 19);
+    assert.equal(pro.lowestPrice.normalized_value.period, "month");
+    assert.equal(stats.status, "unavailable");
+  });
+
+  check("page model extracts hero pricing cta and ignores nav", () => {
+    const modeled = buildPageModel(
+      html({
+        title: "Modeled product",
+        links: "<nav><a>Login</a><a>Dashboard</a></nav>",
+        body: [
+          "<section class=\"hero\"><h1>Proposal generator for freelancers</h1><a>Sign up free</a></section>",
+          "<section class=\"pricing\"><h2>Plus</h2><button>Get Plus - \u20AC5</button></section>",
+          "<footer>Privacy Terms</footer>",
+        ].join(""),
+      }),
+      "https://example.com",
+    );
+
+    assert.ok(modeled.hero.text.includes("Proposal generator"));
+    assert.equal(modeled.pricingBlocks.length >= 1, true);
+    assert.equal(modeled.nav.length >= 1, true);
+    assert.doesNotMatch(modeled.visibleContent, /Dashboard/);
+  });
+
   check("detects changelog pages but not generic blog pages", () => {
     const changelog = analyzePageIntelligence({
       pageType: "changelog",
@@ -459,6 +541,31 @@ try {
       weakSummary.executive_summary,
       "Initial scan completed, but reliable public data was limited.",
     );
+  });
+
+  check("AI disabled still returns deterministic analysis without raw quota errors", async () => {
+    process.env.ENABLE_AI_SUMMARIES = "false";
+    process.env.OPENAI_API_KEY = "quota-exhausted-test-key";
+
+    const page = analyzePageIntelligence({
+      pageType: "pricing",
+      scrape: scrapedPage({
+        rawText: "Pricing\nPro \u20AC19/month\nSign up free",
+      }),
+    });
+    const summary = await summarizeIntelligence({
+      competitorName: "FixtureCo",
+      pages: [page],
+    });
+
+    assert.equal(summary.source, "deterministic");
+    assert.doesNotMatch(
+      JSON.stringify(summary),
+      /429|quota|exceeded your current quota/i,
+    );
+
+    delete process.env.ENABLE_AI_SUMMARIES;
+    delete process.env.OPENAI_API_KEY;
   });
 
   function comparePage(previousText, nextText, pageType = "pricing") {

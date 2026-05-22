@@ -9,17 +9,17 @@ export default async function Home() {
   const demoCache = getDemoExamples();
 
   return (
-    <main className="mx-auto grid min-h-[calc(100vh-72px)] w-full max-w-6xl items-center gap-12 px-6 py-12 lg:grid-cols-[1.05fr_0.95fr]">
+    <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-6xl flex-col gap-12 px-6 py-12">
       <section>
         <p className="text-sm font-semibold uppercase tracking-[0.22em] text-coral">
           Competitor intelligence
         </p>
         <h1 className="mt-5 max-w-3xl text-5xl font-semibold leading-[1.05] text-ink sm:text-6xl">
-          Track every move your competitors make
+          Track meaningful competitor moves, not noisy website diffs.
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-8 text-ink/70">
-          Get alerted when competitors change pricing, messaging, or launch
-          features.
+          LaunchRadar monitors competitor pricing, positioning, CTAs, features,
+          and launches, then shows only evidence-backed changes that matter.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link
@@ -29,18 +29,51 @@ export default async function Home() {
             Start tracking free
           </Link>
           <Link
-            href="/login"
+            href={user ? "/dashboard/your-product" : "/pricing"}
             className="inline-flex h-12 items-center justify-center rounded-md border border-ink/15 bg-white px-6 text-sm font-semibold text-ink transition hover:border-ink/35"
           >
-            Sign in
+            {user ? "Compare your product" : "View pricing"}
           </Link>
         </div>
       </section>
 
-      <section
-        aria-label="LaunchRadar preview"
-        className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft"
-      >
+      <section className="grid gap-5 md:grid-cols-5">
+        {[
+          "Paste competitor URLs",
+          "Analyze public pages",
+          "Build a baseline",
+          "Detect meaningful changes",
+          "Compare Your Product",
+        ].map((step, index) => (
+          <div key={step} className="rounded-lg border border-ink/10 bg-white p-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
+              {index + 1}
+            </p>
+            <h2 className="mt-3 text-sm font-semibold leading-6 text-ink">
+              {step}
+            </h2>
+          </div>
+        ))}
+      </section>
+
+      <section className="grid gap-4 md:grid-cols-5">
+        {[
+          "Evidence-backed insights",
+          "Source URLs",
+          "Confidence levels",
+          "Noise ignored",
+          "Unknown beats false",
+        ].map((point) => (
+          <div
+            key={point}
+            className="rounded-md bg-white px-4 py-3 text-sm font-semibold text-ink/70 shadow-soft"
+          >
+            {point}
+          </div>
+        ))}
+      </section>
+
+      <section aria-label="LaunchRadar preview" className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft">
         <div className="flex items-center justify-between border-b border-ink/10 pb-4">
           <div>
             <p className="text-sm font-semibold text-ink">
@@ -57,7 +90,7 @@ export default async function Home() {
           </div>
         </div>
         {demoCache.examples.length ? (
-          <div className="space-y-4 py-5">
+          <div className="grid gap-4 py-5 md:grid-cols-3">
             {demoCache.examples.map((example) => (
               <article
                 key={example.source_url}
@@ -76,10 +109,10 @@ export default async function Home() {
                     {example.confidence}
                   </span>
                 </div>
-                <p className="mt-3 text-sm leading-6 text-ink/70">
+                <p className="mt-3 line-clamp-3 text-sm leading-6 text-ink/70">
                   {example.positioning}
                 </p>
-                <div className="mt-3 grid gap-2 text-xs text-ink/60 sm:grid-cols-2">
+                <div className="mt-3 space-y-2 text-xs text-ink/60">
                   <p>
                     <span className="font-semibold text-ink">Pricing:</span>{" "}
                     {example.pricing}
@@ -89,8 +122,8 @@ export default async function Home() {
                     {example.cta}
                   </p>
                 </div>
-                <p className="mt-3 rounded-md bg-paper p-3 text-xs leading-5 text-ink/60">
-                  Evidence: {example.evidence_text}{" "}
+                <p className="mt-3 text-xs leading-5 text-ink/60">
+                  Verified from public page.{" "}
                   <a
                     href={example.source_url}
                     target="_blank"

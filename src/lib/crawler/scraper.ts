@@ -5,6 +5,8 @@ import {
   extractMetaDescription,
   extractPageLinks,
   extractPageTitle,
+  buildPageModel,
+  type PageModel,
   type PageLink,
 } from "@/lib/crawler/text";
 
@@ -18,6 +20,7 @@ export type ScrapedPage = {
   rawText: string;
   hash: string;
   links: PageLink[];
+  pageModel?: PageModel;
   error?: string;
 };
 
@@ -71,6 +74,7 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
     const html = await response.text();
     const finalUrl = response.url || url;
     const rawText = extractMeaningfulText(html);
+    const pageModel = buildPageModel(html, finalUrl);
     const status = response.status;
 
     return {
@@ -83,6 +87,7 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
       rawText,
       hash: hashText(rawText),
       links: extractPageLinks(html, finalUrl),
+      pageModel,
       ...(rawText ? {} : { error: "No meaningful text extracted." }),
     };
   } catch (error) {
@@ -139,6 +144,7 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
         const html = await page.content();
         const finalUrl = page.url();
         const rawText = extractMeaningfulText(html);
+        const pageModel = buildPageModel(html, finalUrl);
         const status = response?.status() ?? null;
 
         results.push({
@@ -151,6 +157,7 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
           rawText,
           hash: hashText(rawText),
           links: extractPageLinks(html, finalUrl),
+          pageModel,
         });
       } catch (error) {
         results.push(failedScrape(url, error));

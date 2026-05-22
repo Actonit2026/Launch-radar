@@ -5,6 +5,8 @@ import type {
   StructuredFact,
 } from "@/lib/intelligence/types";
 import {
+  analysisBlocks,
+  blockText,
   isGenericBusinessSummary,
   makeFact,
   sentenceCaseKey,
@@ -13,7 +15,7 @@ import {
 } from "@/lib/intelligence/text";
 
 const productCategoryPattern =
-  /\b(?:platform|software|tool|app|crm|analytics|billing|automation|workspace|assistant|copilot|api|infrastructure|intelligence|monitoring|dashboard|database|search|support|helpdesk)\b/i;
+  /\b(?:platform|software|tool|app|generator|proposal|crm|analytics|billing|automation|workspace|assistant|copilot|api|infrastructure|intelligence|monitoring|database|search|support|helpdesk)\b/i;
 const valuePropPattern =
   /\b(?:helps?|automate|track|monitor|manage|build|launch|ship|analyze|convert|reduce|increase|without|faster|in minutes|in days|so you can)\b/i;
 const targetCustomerPatterns = [
@@ -28,8 +30,17 @@ function usableLine(line: string) {
     line.length >= 8 &&
     line.length <= 180 &&
     !isGenericBusinessSummary(line) &&
-    !/^(?:pricing|features|docs|login|sign in|sign up)$/i.test(line)
+    !/^(?:pricing|features|docs|login|log in|sign in|sign up|dashboard)$/i.test(line) &&
+    !/\b(?:login to your dashboard|forgot password|reset password)\b/i.test(line)
   );
+}
+
+function cleanPositioningLine(line: string) {
+  return line
+    .replace(/\s+(?:login|log in|sign in)\s+(?:to your dashboard|dashboard|account).*$/i, "")
+    .replace(/\s+(?:pricing|features|docs)\s+(?:login|log in|sign in).*$/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function firstUsefulLine(lines: string[], exclude = new Set<string>()) {
@@ -85,12 +96,31 @@ export function analyzePositioning(
 ): PositioningAnalysis {
   const sourceUrl = scrape.finalUrl;
   const bodyLines = textLines(scrape);
+  const hasPageModel = Boolean(scrape.pageModel?.blocks.length);
+  const heroBlocks = analysisBlocks(scrape, ["hero"]).filter(
+    (block) => block.type === "hero",
+  );
+  const heroLines = uniqueBy(
+    heroBlocks
+      .flatMap((block) => blockText(block).split("\n"))
+      .map(cleanPositioningLine)
+      .filter(Boolean),
+    sentenceCaseKey,
+  );
   const lines = uniqueBy(
-    [scrape.title, scrape.metaDescription, ...bodyLines].filter(Boolean),
+    (hasPageModel
+      ? [scrape.title, scrape.metaDescription, ...heroLines, ...bodyLines]
+      : [...bodyLines, scrape.title, scrape.metaDescription])
+      .map(cleanPositioningLine)
+      .filter(Boolean),
     sentenceCaseKey,
   );
   const homepageLines = uniqueBy(
-    [...bodyLines, scrape.title, scrape.metaDescription].filter(Boolean),
+    (hasPageModel
+      ? [...heroLines, scrape.title, scrape.metaDescription, ...bodyLines]
+      : [...bodyLines, scrape.title, scrape.metaDescription])
+      .map(cleanPositioningLine)
+      .filter(Boolean),
     sentenceCaseKey,
   );
   const used = new Set<string>();

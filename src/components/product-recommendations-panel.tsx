@@ -159,9 +159,8 @@ export function ProductRecommendationsPanel({
       <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
         <h2 className="text-xl font-semibold text-ink">Recommendations</h2>
         <p className="mt-3 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-          No strong recommendations available yet. LaunchRadar needs stronger
-          user-product evidence, competitor consensus, or more recent competitor
-          signals before suggesting action.
+          No strong recommendations yet. Add more competitors or wait for more
+          changes.
         </p>
       </div>
     );
@@ -218,27 +217,36 @@ export function ProductRecommendationsPanel({
                 {recommendation.title}
               </h3>
               <p className="mt-2 text-sm leading-6 text-ink/70">
+                <span className="font-semibold text-ink">Suggested action:</span>{" "}
                 {recommendation.explanation}
               </p>
               <p className="mt-3 text-sm leading-6 text-ink/65">
                 <span className="font-semibold text-ink">Why this matters:</span>{" "}
                 {recommendation.why_this_matters}
               </p>
-              {evidence.interpretation ? (
-                <p className="mt-3 rounded-md bg-paper p-3 text-xs leading-5 text-ink/60">
-                  {evidence.interpretation}
-                </p>
-              ) : null}
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <EvidenceList
-                  title="Your product evidence"
-                  items={evidence.userEvidence}
-                />
-                <EvidenceList
-                  title="Competitor evidence"
-                  items={evidence.competitorEvidence}
-                />
-              </div>
+              <details className="mt-4 rounded-md bg-paper p-3">
+                <summary className="cursor-pointer list-none text-xs font-semibold text-ink/60 transition hover:text-ink">
+                  Expand for evidence (
+                  {evidence.userEvidence.length +
+                    evidence.competitorEvidence.length}
+                  )
+                </summary>
+                {evidence.interpretation ? (
+                  <p className="mt-3 text-xs leading-5 text-ink/60">
+                    {evidence.interpretation}
+                  </p>
+                ) : null}
+                <div className="mt-4 grid gap-4 md:grid-cols-2">
+                  <EvidenceList
+                    title="Your product evidence"
+                    items={evidence.userEvidence}
+                  />
+                  <EvidenceList
+                    title="Competitor evidence"
+                    items={evidence.competitorEvidence}
+                  />
+                </div>
+              </details>
               <FeedbackForm recommendationId={recommendation.id} />
             </article>
           );

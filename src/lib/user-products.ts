@@ -169,7 +169,6 @@ export async function analyzeUserProduct({
       ...intelligencePages.flatMap((page) => page.warnings),
       ...summary.warnings,
       ...summary.unknowns,
-      ...(summary.error ? [summary.error] : []),
       ...(crawlWarning ? [crawlWarning] : []),
     ]);
     const { error: snapshotError } = await supabase

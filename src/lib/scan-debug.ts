@@ -75,6 +75,22 @@ function compactScrape(scrape: ScrapedPage | null | undefined) {
     content_hash: scrape.hash,
     extracted_text_length: scrape.rawText.length,
     link_count: scrape.links.length,
+    page_model: scrape.pageModel
+      ? {
+          block_count: scrape.pageModel.blocks.length,
+          hero: scrape.pageModel.hero
+            ? {
+                heading: scrape.pageModel.hero.heading,
+                type: scrape.pageModel.hero.type,
+                confidence: scrape.pageModel.hero.confidence,
+              }
+            : null,
+          pricing_block_count: scrape.pageModel.pricingBlocks.length,
+          feature_block_count: scrape.pageModel.featureBlocks.length,
+          cta_block_count: scrape.pageModel.ctaBlocks.length,
+          changelog_block_count: scrape.pageModel.changelogBlocks.length,
+        }
+      : null,
     error: scrape.error ?? null,
   };
 }
@@ -100,6 +116,7 @@ function compactPage(page: PageIntelligence) {
         : null,
       paid_price_count: page.pricing.paidPlans.length,
       plan_names: page.pricing.planNames.map(compactFact),
+      debug: page.pricing.debug,
       warnings: page.pricing.warnings,
     },
     positioning: {

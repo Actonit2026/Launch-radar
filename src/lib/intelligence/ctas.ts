@@ -1,6 +1,8 @@
 import type { ScrapedPage } from "@/lib/crawler/scraper";
 import type { CtaAnalysis, CtaFact, CtaIntent } from "@/lib/intelligence/types";
 import {
+  analysisBlocks,
+  blockText,
   makeFact,
   sentenceCaseKey,
   textLines,
@@ -64,7 +66,16 @@ function ctaFact({
 
 export function analyzeCtas(scrape: ScrapedPage): CtaAnalysis {
   const sourceUrl = scrape.finalUrl;
-  const linkFacts = scrape.links
+  const blocks = analysisBlocks(scrape, ["hero", "pricing", "cta"]);
+  const blockLinks = blocks.flatMap((block) => block.links);
+  const blockButtons = blocks.flatMap((block) =>
+    block.buttons.map((button) => ({
+      text: button,
+      evidence: blockText(block),
+    })),
+  );
+  const candidateLinks = blockLinks.length ? blockLinks : scrape.links;
+  const linkFacts = candidateLinks
     .filter((link) => link.text && classifyCta(link.text).intent !== "unknown")
     .slice(0, 8)
     .map((link, index) =>
@@ -76,6 +87,17 @@ export function analyzeCtas(scrape: ScrapedPage): CtaAnalysis {
         order: index,
       }),
     );
+  const buttonFacts = blockButtons
+    .filter((button) => classifyCta(button.text).intent !== "unknown")
+    .slice(0, 4)
+    .map((button, index) =>
+      ctaFact({
+        text: button.text,
+        sourceUrl,
+        evidenceText: button.evidence,
+        order: linkFacts.length + index,
+      }),
+    );
   const lineFacts = textLines(scrape)
     .filter((line) => classifyCta(line).intent !== "unknown")
     .slice(0, 4)
@@ -84,10 +106,10 @@ export function analyzeCtas(scrape: ScrapedPage): CtaAnalysis {
         text: line,
         sourceUrl,
         evidenceText: line,
-        order: linkFacts.length + index,
+        order: linkFacts.length + buttonFacts.length + index,
       }),
     );
-  const ctas = uniqueBy([...linkFacts, ...lineFacts], (fact) =>
+  const ctas = uniqueBy([...linkFacts, ...buttonFacts, ...lineFacts], (fact) =>
     sentenceCaseKey(`${fact.value}:${fact.normalized_value?.destination_url ?? ""}`),
   ).slice(0, 6);
   const warnings = ctas.length ? [] : ["No clear calls to action detected."];

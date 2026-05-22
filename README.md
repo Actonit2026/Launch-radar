@@ -89,6 +89,8 @@ The current build also includes:
 - Your Product analysis with evidence-backed competitor comparison recommendations
 - Recommendation trust gates for consensus, confidence, novelty, actionability, priority, and feedback tracking
 - Usage events, AI summary caching, scan limits, and global budget guardrails
+- Deterministic page modeling for hero, pricing, CTA, feature, changelog, nav, footer, and auth sections
+- Cost-safe analysis mode where AI summaries are optional and core extraction works without AI
 
 ## Local Setup
 
@@ -106,6 +108,7 @@ Required:
 - `NEXT_PUBLIC_SITE_URL` or `NEXT_PUBLIC_APP_URL`
 - `OPENAI_API_KEY`
 - `OPENAI_SUMMARY_MODEL`
+- `ENABLE_AI_SUMMARIES`
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
 - `STRIPE_SECRET_KEY`
@@ -122,6 +125,8 @@ Cost guard defaults:
 - `MONTHLY_COST_BUDGET_EUR=20`
 - `AI_MONTHLY_TOKEN_LIMIT=400000`
 - `MAX_SCANS_PER_DAY_GLOBAL=80`
+- `MAX_AI_CALLS_PER_USER_PER_DAY=2`
+- `MAX_AI_CALLS_GLOBAL_PER_DAY=50`
 - `MAX_AI_CALLS_PER_DAY_GLOBAL=50`
 - `MAX_PAGES_PER_SCAN=15`
 - `AI_ESTIMATED_EUR_PER_1K_TOKENS=0.0002`

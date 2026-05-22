@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { signOutAction } from "@/app/auth/actions";
+import { ChangeCard } from "@/components/change-card";
 import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
 import { IntelligenceSnapshotPanel } from "@/components/intelligence-snapshot-panel";
 import { ManualPageOverrideForm } from "@/components/manual-page-override-form";
@@ -8,7 +9,7 @@ import { RunScanButton } from "@/components/run-scan-button";
 import { ScanDebugPanel } from "@/components/scan-debug-panel";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
-import { formatDateTime, formatPageType, severityClassName } from "@/lib/format";
+import { formatDateTime, formatPageType } from "@/lib/format";
 import { getCompetitorDetail } from "@/lib/competitors";
 import {
   buildIntelligenceDisplay,
@@ -225,27 +226,17 @@ export default async function CompetitorDetailPage({
           {changes.length ? (
             <div className="mt-5 space-y-4">
               {changes.map((change) => (
-                <article
+                <ChangeCard
                   key={change.id}
-                  className="rounded-md border border-ink/10 p-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${severityClassName(
-                        change.severity,
-                      )}`}
-                    >
-                      {change.severity}
-                    </span>
-                    <span className="text-xs text-ink/45">
-                      {formatPageType(change.page.page_type)} -{" "}
-                      {formatDateTime(change.created_at)}
-                    </span>
-                  </div>
-                  <p className="mt-3 text-sm leading-6 text-ink/75">
-                    {change.diff_summary}
-                  </p>
-                </article>
+                  id={change.id}
+                  summary={change.diff_summary}
+                  severity={change.severity}
+                  changeType={change.change_type}
+                  evidenceJson={change.evidence_json}
+                  createdAt={change.created_at}
+                  pageType={change.page.page_type}
+                  pageUrl={change.page.url}
+                />
               ))}
             </div>
           ) : (

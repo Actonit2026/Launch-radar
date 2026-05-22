@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOutAction } from "@/app/auth/actions";
 import { AddCompetitorDialog } from "@/components/add-competitor-dialog";
+import { ChangeCard } from "@/components/change-card";
 import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
 import { IntelligenceSnapshotPanel } from "@/components/intelligence-snapshot-panel";
 import { RunScanButton } from "@/components/run-scan-button";
@@ -11,7 +12,7 @@ import {
   getDashboardData,
   type DashboardCompetitor,
 } from "@/lib/competitors";
-import { formatDateTime, formatPageType, severityClassName } from "@/lib/format";
+import { formatDateTime, formatPageType } from "@/lib/format";
 import { buildIntelligenceDisplay } from "@/lib/intelligence/display";
 import {
   isSupabaseConfigured,
@@ -211,10 +212,18 @@ export default async function DashboardPage() {
                       )}
 
                       {competitor.latestChange ? (
-                        <p className="mt-4 border-t border-ink/10 pt-4 text-sm leading-6 text-ink/70">
-                          Latest confirmed change:{" "}
-                          {competitor.latestChange.diff_summary}
-                        </p>
+                        <div className="mt-4 border-t border-ink/10 pt-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink/45">
+                            Latest confirmed change
+                          </p>
+                          <p className="mt-2 text-sm font-semibold leading-6 text-ink/75">
+                            {
+                              competitor.latestChange.diff_summary.split(
+                                /(?<=[.!?])\s+/,
+                              )[0]
+                            }
+                          </p>
+                        </div>
                       ) : null}
                     </article>
                   );
@@ -238,35 +247,19 @@ export default async function DashboardPage() {
           {data?.recentChanges.length ? (
             <div className="mt-5 space-y-4">
               {data.recentChanges.map((change) => (
-                <article
+                <ChangeCard
                   key={change.id}
-                  className="rounded-md border border-ink/10 p-4"
-                >
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${severityClassName(
-                        change.severity,
-                      )}`}
-                    >
-                      {change.severity}
-                    </span>
-                    <span className="text-xs text-ink/45">
-                      {formatDateTime(change.created_at)}
-                    </span>
-                  </div>
-                  <Link
-                    href={`/dashboard/competitors/${change.competitor.id}`}
-                    className="mt-3 block font-semibold text-ink transition hover:text-moss"
-                  >
-                    {change.competitor.name}
-                  </Link>
-                  <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-moss">
-                    {formatPageType(change.page.page_type)}
-                  </p>
-                  <p className="mt-3 text-sm leading-6 text-ink/70">
-                    {change.diff_summary}
-                  </p>
-                </article>
+                  id={change.id}
+                  summary={change.diff_summary}
+                  severity={change.severity}
+                  changeType={change.change_type}
+                  evidenceJson={change.evidence_json}
+                  createdAt={change.created_at}
+                  pageType={change.page.page_type}
+                  pageUrl={change.page.url}
+                  competitorName={change.competitor.name}
+                  competitorHref={`/dashboard/competitors/${change.competitor.id}`}
+                />
               ))}
             </div>
           ) : (

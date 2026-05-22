@@ -2,6 +2,8 @@ import type { PageType } from "@/lib/database.types";
 import type { ScrapedPage } from "@/lib/crawler/scraper";
 import type { FeatureAnalysis, FeatureFact } from "@/lib/intelligence/types";
 import {
+  analysisBlocks,
+  blockText,
   makeFact,
   sentenceCaseKey,
   textLines,
@@ -9,7 +11,7 @@ import {
 } from "@/lib/intelligence/text";
 
 const featureSignalPattern =
-  /\b(?:feature|integration|workflow|automation|automated|dashboard|dashboards|analytics|report|api|security|sso|export|import|collaboration|templates|alerts|search|sync|permissions|roles|tracking|monitoring)\b/i;
+  /\b(?:feature|integration|workflow|automation|automated|dashboard|dashboards|analytics|report|api|security|sso|export|import|collaboration|templates|alerts|search|sync|permissions|roles|tracking|monitoring|proposal|proposals|generator|generation|voice|personalization|personalized|writing sample|matching)\b/i;
 const rejectedFeaturePattern =
   /\b(?:pricing|price|free|contact sales|book a demo|sign up|get started|privacy|terms|cookie|copyright)\b/i;
 
@@ -61,10 +63,16 @@ export function analyzeFeatures(
   pageType: PageType,
 ): FeatureAnalysis {
   const lines = textLines(scrape);
+  const featureBlockLines = analysisBlocks(scrape, ["features", "hero"])
+    .filter((block) => block.type === "features")
+    .flatMap((block) => blockText(block).split("\n"));
+  const candidateLines = featureBlockLines.length
+    ? uniqueBy([...featureBlockLines, ...lines], sentenceCaseKey)
+    : lines;
   const sourceUrl = scrape.finalUrl;
   const candidates: FeatureFact[] = [];
 
-  lines.forEach((line, index) => {
+  candidateLines.forEach((line, index) => {
     if (!featureSignalPattern.test(line) && pageType !== "features") {
       return;
     }
@@ -75,7 +83,7 @@ export function analyzeFeatures(
       return;
     }
 
-    const description = descriptionForFeature(lines, index);
+    const description = descriptionForFeature(candidateLines, index);
     const confidence = featureConfidence(pageType, line);
 
     candidates.push(

@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  AI_SUMMARY_UNAVAILABLE_MESSAGE,
   createOpenAIClient,
   getOpenAIConfig,
   OPENAI_NOT_CONFIGURED_ERROR,
@@ -14,6 +15,7 @@ import type {
 import {
   canRunAiSummary,
   estimateAiCostEur,
+  getPlanForUser,
   recordUsageEvent,
 } from "@/lib/usage";
 
@@ -192,7 +194,7 @@ function deterministicSummary({
   const unknowns: string[] = [];
 
   if (!lowestPrice && !contactSales) {
-    unknowns.push("No reliable public pricing detected.");
+    unknowns.push("No public pricing detected.");
   }
 
   if (!headline && !valueProp) {
@@ -329,6 +331,9 @@ export async function summarizeIntelligence(
   if (!config) {
     return {
       ...fallback,
+      warnings: Array.from(
+        new Set([...fallback.warnings, AI_SUMMARY_UNAVAILABLE_MESSAGE]),
+      ),
       error: OPENAI_NOT_CONFIGURED_ERROR,
     };
   }
@@ -362,16 +367,29 @@ export async function summarizeIntelligence(
       return cachedSummary;
     }
 
+    const plan = await getPlanForUser(input.supabase, input.userId);
+
+    if (plan.name === "free") {
+      return {
+        ...fallback,
+        warnings: Array.from(
+          new Set([...fallback.warnings, AI_SUMMARY_UNAVAILABLE_MESSAGE]),
+        ),
+      };
+    }
+
     const budget = await canRunAiSummary({
       supabase: input.supabase,
+      userId: input.userId,
       estimatedTokens: estimatedInputTokens,
     });
 
     if (!budget.allowed) {
       return {
         ...fallback,
-        error: budget.reason,
-        warnings: [...fallback.warnings, budget.reason ?? "AI summary skipped."],
+        warnings: Array.from(
+          new Set([...fallback.warnings, AI_SUMMARY_UNAVAILABLE_MESSAGE]),
+        ),
       };
     }
   }
@@ -430,6 +448,9 @@ export async function summarizeIntelligence(
   } catch (error) {
     return {
       ...fallback,
+      warnings: Array.from(
+        new Set([...fallback.warnings, AI_SUMMARY_UNAVAILABLE_MESSAGE]),
+      ),
       error:
         error instanceof Error
           ? error.message

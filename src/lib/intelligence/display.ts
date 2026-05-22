@@ -271,9 +271,17 @@ function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSection
   const contactSales = bestFieldFact(snapshot, ["contact_sales"]);
 
   if (reliablePrice) {
+    const period =
+      isRecord(reliablePrice.normalizedValue) &&
+      typeof reliablePrice.normalizedValue.period === "string"
+        ? reliablePrice.normalizedValue.period
+        : null;
+
     return {
       status: "found",
-      text: `Lowest visible price: ${reliablePrice.value}`,
+      text: period
+        ? `Lowest visible price: ${reliablePrice.value}`
+        : `Detected ${reliablePrice.value}, billing period unclear.`,
       fact: reliablePrice,
     };
   }
@@ -281,7 +289,7 @@ function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSection
   if (weakPrice) {
     return {
       status: "unclear",
-      text: "Pricing unclear",
+      text: `Detected ${weakPrice.value}, billing period unclear.`,
       fact: weakPrice,
     };
   }
@@ -389,7 +397,7 @@ function displayWarnings({
   return Array.from(new Set(warnings)).filter((warning) => {
     if (
       pricing.status === "found" &&
-      /no public pricing detected/i.test(warning)
+      /no (?:reliable )?public pricing detected/i.test(warning)
     ) {
       return false;
     }

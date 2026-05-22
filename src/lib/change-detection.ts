@@ -156,9 +156,6 @@ const entityMap: Record<string, string> = {
   euro: "\u20ac",
 };
 
-const businessSignalPattern =
-  /\b(?:pricing|price|plan|plans|free|trial|demo|contact sales|book|started|feature|integration|automation|analytics|security|launch|release|update|changelog|customer|teams|agencies|founders|platform|workflow)\b/i;
-
 function hashValue(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
@@ -1041,35 +1038,6 @@ function compareChangelog(previous: SnapshotFacts, next: SnapshotFacts) {
   return changes;
 }
 
-function compareCanonicalContent(previousCanonical: string, nextCanonical: string, pageType: PageType) {
-  const previousSegments = new Set(previousCanonical.split("\n").filter(Boolean));
-  const nextSegments = new Set(nextCanonical.split("\n").filter(Boolean));
-  const additions = addedValues(nextSegments, previousSegments);
-  const removals = removedValues(nextSegments, previousSegments);
-  const touched = [...additions, ...removals];
-  const signalCount = touched.filter((line) => businessSignalPattern.test(line)).length;
-
-  if (touched.length < 6 || signalCount < 2) {
-    return [];
-  }
-
-  return [
-    {
-      category: "content",
-      changeType: "substantial_content_changed",
-      summary: `${formatPageType(pageType)} page had substantial business-copy changes.`,
-      severity: pageType === "pricing" ? "medium" : "low",
-      confidenceScore: 0.6,
-      whyItMatters:
-        "Large public copy changes can indicate messaging or offer movement even when specific facts are limited.",
-      evidence: additions.slice(0, 2).map((line) => ({
-        source_url: "",
-        evidence_text: line,
-      })),
-    } satisfies MeaningfulChange,
-  ];
-}
-
 export function compareSnapshotAnalyses({
   previousRawHash,
   previousCanonicalHash,
@@ -1085,6 +1053,8 @@ export function compareSnapshotAnalyses({
   previousCanonicalContent: string | null;
   current: SnapshotAnalysis;
 }): SnapshotComparison {
+  void previousCanonicalContent;
+
   const rawChanged = previousRawHash !== current.rawContentHash;
   const canonicalChanged =
     previousCanonicalHash !== current.canonicalContentHash;
@@ -1102,21 +1072,6 @@ export function compareSnapshotAnalyses({
       ]
     : [];
 
-  if (
-    previousFacts &&
-    canonicalChanged &&
-    !meaningfulChanges.length &&
-    previousCanonicalContent
-  ) {
-    meaningfulChanges.push(
-      ...compareCanonicalContent(
-        previousCanonicalContent,
-        current.canonicalContent,
-        current.structuredFacts.page_type,
-      ),
-    );
-  }
-
   if (rawChanged && !canonicalChanged && !structuredFactsChanged) {
     ignoredReasons.push(
       "Raw text changed only; casing, whitespace, punctuation, boilerplate, or technical noise normalized away.",
@@ -1125,7 +1080,7 @@ export function compareSnapshotAnalyses({
 
   if (canonicalChanged && !structuredFactsChanged && !meaningfulChanges.length) {
     ignoredReasons.push("Canonical content changed, but no structured business facts changed.");
-    ignoredReasons.push("Canonical difference was below the meaningful-change threshold.");
+    ignoredReasons.push("User-facing changes are created from structured facts only.");
   }
 
   if (structuredFactsChanged && !meaningfulChanges.length) {

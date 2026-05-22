@@ -24,12 +24,28 @@ function readNumberEnv(name: string, fallback: number) {
   return Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
+function readNumberEnvAny(names: string[], fallback: number) {
+  for (const name of names) {
+    const value = Number(process.env[name]);
+
+    if (Number.isFinite(value) && value >= 0) {
+      return value;
+    }
+  }
+
+  return fallback;
+}
+
 export function getUsageConfig() {
   return {
     monthlyCostBudgetEur: readNumberEnv("MONTHLY_COST_BUDGET_EUR", 20),
     aiMonthlyTokenLimit: readNumberEnv("AI_MONTHLY_TOKEN_LIMIT", 400_000),
     maxScansPerDayGlobal: readNumberEnv("MAX_SCANS_PER_DAY_GLOBAL", 80),
-    maxAiCallsPerDayGlobal: readNumberEnv("MAX_AI_CALLS_PER_DAY_GLOBAL", 50),
+    maxAiCallsPerDayGlobal: readNumberEnvAny(
+      ["MAX_AI_CALLS_GLOBAL_PER_DAY", "MAX_AI_CALLS_PER_DAY_GLOBAL"],
+      50,
+    ),
+    maxAiCallsPerUserPerDay: readNumberEnv("MAX_AI_CALLS_PER_USER_PER_DAY", 2),
     maxPagesPerScan: readNumberEnv("MAX_PAGES_PER_SCAN", 15),
     aiEstimatedEurPer1kTokens: readNumberEnv(
       "AI_ESTIMATED_EUR_PER_1K_TOKENS",
@@ -286,19 +302,29 @@ export async function canRunProductScan({
 
 export async function canRunAiSummary({
   supabase,
+  userId,
   estimatedTokens,
 }: {
   supabase: Supabase;
+  userId?: string;
   estimatedTokens: number;
 }): Promise<UsageDecision> {
   const config = getUsageConfig();
-  const [budget, globalAiCalls, monthlyTokens] = await Promise.all([
+  const [budget, globalAiCalls, userAiCalls, monthlyTokens] = await Promise.all([
     budgetDecision(supabase),
     countEvents({
       supabase,
       eventType: "ai_summary",
       since: sinceHours(24),
     }),
+    userId
+      ? countEvents({
+          supabase,
+          userId,
+          eventType: "ai_summary",
+          since: sinceHours(24),
+        })
+      : Promise.resolve(0),
     sumMonthlyAiTokens(supabase),
   ]);
 
@@ -310,6 +336,13 @@ export async function canRunAiSummary({
     return {
       allowed: false,
       reason: "AI summary skipped because the global daily AI limit was reached.",
+    };
+  }
+
+  if (userId && userAiCalls >= config.maxAiCallsPerUserPerDay) {
+    return {
+      allowed: false,
+      reason: "AI summary skipped because the daily user AI limit was reached.",
     };
   }
 

@@ -1,22 +1,43 @@
+import type { PageBlockType } from "@/lib/crawler/text";
 import type { PageType } from "@/lib/database.types";
 import type { ScrapedPage } from "@/lib/crawler/scraper";
 import type {
   Confidence,
   NormalizedPrice,
   PricingAnalysis,
+  PricingCandidateDebug,
   StructuredFact,
 } from "@/lib/intelligence/types";
 import {
+  analysisBlocks,
+  blockText,
   makeFact,
   sentenceCaseKey,
   textLines,
   uniqueBy,
 } from "@/lib/intelligence/text";
 
+type PriceCandidate = {
+  rawText: string;
+  amount: number;
+  currency: NormalizedPrice["currency"];
+  period?: NormalizedPrice["period"];
+  unit?: NormalizedPrice["unit"];
+  plan?: string;
+  evidenceText: string;
+  context: string;
+  section: PageBlockType;
+  score: number;
+  reasons: string[];
+  rejected?: string;
+};
+
 const currencyBySymbol: Record<string, NormalizedPrice["currency"]> = {
   $: "USD",
   "\u20AC": "EUR",
+  "â‚¬": "EUR",
   "\u00A3": "GBP",
+  "Â£": "GBP",
 };
 
 const currencyByCode: Record<string, NormalizedPrice["currency"]> = {
@@ -25,20 +46,28 @@ const currencyByCode: Record<string, NormalizedPrice["currency"]> = {
   gbp: "GBP",
 };
 
-const symbolBeforePricePattern =
-  /([$\u20AC\u00A3])\s?(\d{1,5}(?:[.,]\d{1,2})?)/gi;
-const symbolAfterPricePattern =
-  /(\d{1,5}(?:[.,]\d{1,2})?)\s?([$\u20AC\u00A3])/gi;
-const codePricePattern =
-  /(?:(usd|eur|gbp)\s?(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s?(usd|eur|gbp))/gi;
+const pricePatterns = [
+  /([$\u20AC\u00A3]|â‚¬|Â£)\s?(\d{1,5}(?:[.,]\d{1,2})?)/gi,
+  /(\d{1,5}(?:[.,]\d{1,2})?)\s?([$\u20AC\u00A3]|â‚¬|Â£)/gi,
+  /(?:(usd|eur|gbp)\s?(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s?(usd|eur|gbp))/gi,
+];
 const freePattern =
   /\b(?:free forever|free plan|free tier|free trial|start free|free)\b/i;
-const contactSalesPattern = /\b(?:contact sales|talk to sales|custom pricing|request pricing|enterprise pricing)\b/i;
-const monthlyPattern = /\b(?:\/\s?mo|\/\s?month|per month|monthly|month)\b/i;
-const yearlyPattern = /\b(?:\/\s?yr|\/\s?year|per year|annually|annual|yearly|billed annually)\b/i;
+const contactSalesPattern =
+  /\b(?:contact sales|talk to sales|custom pricing|request pricing|enterprise pricing)\b/i;
+const monthlyPattern =
+  /\b(?:\/\s?mo|\/\s?month|per month|monthly|billed monthly|paid monthly|month)\b/i;
+const yearlyPattern =
+  /\b(?:\/\s?yr|\/\s?year|per year|annually|annual|yearly|billed annually)\b/i;
 const unitPattern = /\b(?:per|\/)\s?(?:user|seat)\b/i;
+const planPattern =
+  /\b(?:free|starter|basic|plus|pro|premium|team|business|growth|enterprise|upgrade|plan|package|tier)\b/i;
 const pricingContextPattern =
-  /\b(?:pricing|price|plan|plans|package|packages|tier|starter|pro|team|business|enterprise|subscription|billing|billed|per month|monthly|annual|annually|seat|user)\b/i;
+  /\b(?:pricing|price|prices|plan|plans|package|packages|tier|starter|basic|plus|pro|premium|team|business|enterprise|subscription|billing|billed|paid|monthly|annual|annually|upgrade|checkout|seat|user)\b/i;
+const ctaContextPattern =
+  /\b(?:get plus|get pro|upgrade|start free|sign up|subscribe|get started|buy|checkout|choose plan)\b/i;
+const statRejectPattern =
+  /\b(?:customers|users|visitors|uptime|support|founded|employees|integrations|templates|examples|reviews|stars|rating|raised|funding|revenue|arr|mrr|million|billion|downloads)\b|%/i;
 
 function parseAmount(value: string) {
   return Number(value.replace(",", "."));
@@ -51,124 +80,259 @@ function normalizedCurrency(symbolOrCode: string) {
   );
 }
 
-function periodForLine(line: string): NormalizedPrice["period"] | undefined {
-  if (monthlyPattern.test(line)) {
+function periodForContext(context: string): NormalizedPrice["period"] | undefined {
+  if (monthlyPattern.test(context)) {
     return "month";
   }
 
-  if (yearlyPattern.test(line)) {
+  if (yearlyPattern.test(context)) {
     return "year";
   }
 
   return undefined;
 }
 
-function unitForLine(line: string): NormalizedPrice["unit"] | undefined {
-  return unitPattern.test(line) ? "user" : undefined;
+function unitForContext(context: string): NormalizedPrice["unit"] | undefined {
+  return unitPattern.test(context) ? "user" : undefined;
 }
 
-function hasStrongPricingContext(line: string, pageType: PageType) {
-  return pageType === "pricing" || pricingContextPattern.test(line);
-}
+function planForContext(context: string, heading?: string | null) {
+  const headingPlan =
+    heading && heading.length <= 48 && planPattern.test(heading)
+      ? heading.trim()
+      : null;
 
-function confidenceForPrice(line: string, pageType: PageType): {
-  confidence: Confidence;
-  confidenceScore: number;
-} {
-  const hasPeriod = Boolean(periodForLine(line));
-  const hasContext = hasStrongPricingContext(line, pageType);
-
-  if (hasPeriod && hasContext) {
-    return { confidence: "high", confidenceScore: 0.92 };
+  if (headingPlan) {
+    return headingPlan;
   }
 
-  if (hasContext) {
-    return { confidence: "medium", confidenceScore: 0.74 };
-  }
+  const linePlan = context.match(
+    /\b(Free|Starter|Basic|Plus|Pro|Premium|Team|Business|Growth|Enterprise)\b/i,
+  )?.[1];
 
-  return { confidence: "low", confidenceScore: 0.46 };
+  return linePlan ?? undefined;
 }
 
-function priceFactsFromLine({
-  line,
+function confidenceFromScore(score: number): Confidence {
+  if (score >= 80) {
+    return "high";
+  }
+
+  if (score >= 60) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function boundedScore(score: number) {
+  return Math.min(100, Math.max(0, score));
+}
+
+function factScore(candidate: PriceCandidate) {
+  return Number((boundedScore(candidate.score) / 100).toFixed(2));
+}
+
+function lineWindow(lines: string[], index: number) {
+  return lines.slice(Math.max(0, index - 1), index + 2).join(" ");
+}
+
+function scoreCandidate({
+  context,
+  section,
   pageType,
+  rawText,
+}: {
+  context: string;
+  section: PageBlockType;
+  pageType: PageType;
+  rawText: string;
+}) {
+  let score = 50;
+  const reasons = ["currency"];
+
+  if (planPattern.test(context)) {
+    score += 20;
+    reasons.push("plan_context");
+  }
+
+  if (monthlyPattern.test(context) || yearlyPattern.test(context)) {
+    score += 20;
+    reasons.push("billing_context");
+  }
+
+  if (ctaContextPattern.test(context)) {
+    score += 15;
+    reasons.push("cta_nearby");
+  }
+
+  if (section === "pricing" || pageType === "pricing") {
+    score += 15;
+    reasons.push("pricing_section");
+  }
+
+  if (pricingContextPattern.test(context)) {
+    score += 10;
+    reasons.push("pricing_language");
+  }
+
+  if (statRejectPattern.test(context) && !pricingContextPattern.test(context)) {
+    score -= 35;
+    reasons.push("stat_context_penalty");
+  }
+
+  if (/\b(?:m|mm|b|bn)\b/i.test(rawText)) {
+    score -= 25;
+    reasons.push("funding_or_large_number_penalty");
+  }
+
+  return { score: boundedScore(score), reasons };
+}
+
+function candidateDebug(
+  candidate: PriceCandidate,
+  sourceUrl: string,
+): PricingCandidateDebug {
+  return {
+    raw_text: candidate.rawText,
+    context: candidate.context.slice(0, 420),
+    source_url: sourceUrl,
+    section: candidate.section,
+    score: candidate.score,
+    accepted: !candidate.rejected,
+    reasons: candidate.reasons,
+    ...(candidate.rejected ? { rejection_reason: candidate.rejected } : {}),
+  };
+}
+
+function candidatesFromContext({
+  context,
+  section,
+  pageType,
+  heading,
+}: {
+  context: string;
+  section: PageBlockType;
+  pageType: PageType;
+  heading?: string | null;
+}) {
+  const candidates: PriceCandidate[] = [];
+
+  for (const pattern of pricePatterns) {
+    pattern.lastIndex = 0;
+
+    for (const match of context.matchAll(pattern)) {
+      const first = match[1];
+      const second = match[2];
+      const third = match[3];
+      const fourth = match[4];
+      const currencyText =
+        normalizedCurrency(first ?? "") ? first : normalizedCurrency(second ?? "") ? second : first ?? fourth;
+      const amountText =
+        normalizedCurrency(first ?? "") ? second : normalizedCurrency(second ?? "") ? first : second ?? third;
+      const currency = currencyText ? normalizedCurrency(currencyText) : null;
+      const amount = amountText ? parseAmount(amountText) : Number.NaN;
+
+      if (!currency || !Number.isFinite(amount)) {
+        continue;
+      }
+
+      const scoring = scoreCandidate({
+        context,
+        section,
+        pageType,
+        rawText: match[0],
+      });
+      const rejected =
+        scoring.score < 40
+          ? "confidence_below_threshold"
+          : amount <= 0
+            ? "non_positive_amount"
+            : undefined;
+
+      candidates.push({
+        rawText: match[0].trim(),
+        amount,
+        currency,
+        period: periodForContext(context),
+        unit: unitForContext(context),
+        plan: planForContext(context, heading),
+        evidenceText: context,
+        context,
+        section,
+        score: scoring.score,
+        reasons: scoring.reasons,
+        rejected,
+      });
+    }
+  }
+
+  if (
+    !candidates.length &&
+    /(?:\bplus\b|\bpro\b|\bupgrade\b|\bplan\b)/i.test(context) &&
+    /\b\d{1,5}(?:[.,]\d{1,2})?\b/.test(context)
+  ) {
+    candidates.push({
+      rawText: context.match(/\b\d{1,5}(?:[.,]\d{1,2})?\b/)?.[0] ?? "",
+      amount: Number.NaN,
+      currency: "EUR",
+      evidenceText: context,
+      context,
+      section,
+      score: 25,
+      reasons: ["strong_plan_context_without_currency"],
+      rejected: "missing_currency",
+    });
+  }
+
+  return candidates.map((candidate) => ({
+    ...candidate,
+    evidenceText: candidate.evidenceText.replace(/\s+/g, " ").trim(),
+  }));
+}
+
+function priceFact({
+  candidate,
   sourceUrl,
 }: {
-  line: string;
-  pageType: PageType;
+  candidate: PriceCandidate;
   sourceUrl: string;
 }) {
-  const facts: StructuredFact<NormalizedPrice>[] = [];
+  const normalizedValue: NormalizedPrice = {
+    amount: candidate.amount,
+    currency: candidate.currency,
+    ...(candidate.period ? { period: candidate.period } : {}),
+    ...(candidate.unit ? { unit: candidate.unit } : {}),
+    ...(candidate.plan ? { plan: candidate.plan } : {}),
+  };
 
-  function addFact(matchText: string, amountText: string, currencyText: string) {
-    const amount = parseAmount(amountText);
-    const currency = normalizedCurrency(currencyText);
-
-    if (!currency || Number.isNaN(amount)) {
-      return;
-    }
-
-    const { confidence, confidenceScore } = confidenceForPrice(line, pageType);
-
-    facts.push(
-      makeFact<NormalizedPrice>({
-        field: "visible_price",
-        value: matchText.trim(),
-        normalizedValue: {
-          amount,
-          currency,
-          ...(periodForLine(line) ? { period: periodForLine(line) } : {}),
-          ...(unitForLine(line) ? { unit: unitForLine(line) } : {}),
-        },
-        confidence,
-        confidenceScore,
-        sourceUrl,
-        evidenceText: line,
-        extractionMethod: "deterministic_regex",
-      }),
-    );
-  }
-
-  for (const match of line.matchAll(symbolBeforePricePattern)) {
-    const currency = match[1];
-    const amount = match[2];
-
-    if (currency && amount) {
-      addFact(match[0], amount, currency);
-    }
-  }
-
-  for (const match of line.matchAll(symbolAfterPricePattern)) {
-    const amount = match[1];
-    const currency = match[2];
-
-    if (currency && amount) {
-      addFact(match[0], amount, currency);
-    }
-  }
-
-  for (const match of line.matchAll(codePricePattern)) {
-    const code = match[1] ?? match[4];
-    const amount = match[2] ?? match[3];
-
-    if (code && amount) {
-      addFact(match[0], amount, code);
-    }
-  }
-
-  return facts;
+  return makeFact<NormalizedPrice>({
+    field: "visible_price",
+    value: candidate.rawText,
+    normalizedValue,
+    confidence: confidenceFromScore(candidate.score),
+    confidenceScore: factScore(candidate),
+    sourceUrl,
+    evidenceText: candidate.evidenceText,
+    extractionMethod: "deterministic_regex",
+  });
 }
 
-function candidatePlanName(line: string, previousLine?: string) {
-  const beforePrice = line
-    .split(/[$\u20AC\u00A3]|\b(?:usd|eur|gbp)\b/i)[0]
-    .replace(/\b(?:starting at|from|only|just)\b/gi, "")
+function candidatePlanName(candidate: PriceCandidate, previousLine?: string) {
+  if (candidate.plan) {
+    return candidate.plan;
+  }
+
+  const beforePrice = candidate.context
+    .split(/[$\u20AC\u00A3]|â‚¬|Â£|\b(?:usd|eur|gbp)\b/i)[0]
+    .replace(/\b(?:starting at|from|only|just|get|choose)\b/gi, "")
     .trim();
 
   if (
     beforePrice.length >= 2 &&
-    beforePrice.length <= 40 &&
-    !/\d/.test(beforePrice)
+    beforePrice.length <= 48 &&
+    !/\d/.test(beforePrice) &&
+    planPattern.test(beforePrice)
   ) {
     return beforePrice;
   }
@@ -176,9 +340,9 @@ function candidatePlanName(line: string, previousLine?: string) {
   if (
     previousLine &&
     previousLine.length >= 2 &&
-    previousLine.length <= 40 &&
+    previousLine.length <= 48 &&
     !/\d/.test(previousLine) &&
-    !pricingContextPattern.test(previousLine)
+    planPattern.test(previousLine)
   ) {
     return previousLine;
   }
@@ -188,21 +352,20 @@ function candidatePlanName(line: string, previousLine?: string) {
 
 function planNameFacts({
   lines,
-  priceFacts,
+  candidates,
   sourceUrl,
 }: {
   lines: string[];
-  priceFacts: StructuredFact<NormalizedPrice>[];
+  candidates: PriceCandidate[];
   sourceUrl: string;
 }) {
   const facts: StructuredFact[] = [];
 
-  for (const priceFact of priceFacts) {
-    const lineIndex = lines.findIndex(
-      (line) => line === priceFact.evidence_text,
+  for (const candidate of candidates) {
+    const lineIndex = lines.findIndex((line) =>
+      candidate.context.includes(line),
     );
-    const line = lines[lineIndex] ?? priceFact.evidence_text;
-    const planName = candidatePlanName(line, lines[lineIndex - 1]);
+    const planName = candidatePlanName(candidate, lines[lineIndex - 1]);
 
     if (!planName) {
       continue;
@@ -212,11 +375,10 @@ function planNameFacts({
       makeFact({
         field: "plan_name",
         value: planName,
-        confidence:
-          priceFact.confidence === "high" ? "medium" : priceFact.confidence,
-        confidenceScore: Math.min(priceFact.confidence_score, 0.72),
+        confidence: candidate.score >= 80 ? "high" : "medium",
+        confidenceScore: Math.min(factScore(candidate), 0.82),
         sourceUrl,
-        evidenceText: line,
+        evidenceText: candidate.evidenceText,
         extractionMethod: "deterministic_regex",
       }),
     );
@@ -262,9 +424,36 @@ function tierCountFact({
     confidence: planNames.length ? "medium" : "low",
     confidenceScore: planNames.length ? 0.68 : 0.42,
     sourceUrl,
-    evidenceText: planNames[0]?.evidence_text ?? freePlan?.evidence_text ?? contactSales?.evidence_text ?? "",
+    evidenceText:
+      planNames[0]?.evidence_text ??
+      freePlan?.evidence_text ??
+      contactSales?.evidence_text ??
+      "",
     extractionMethod: "deterministic_regex",
   });
+}
+
+function pricingContexts(scrape: ScrapedPage, pageType: PageType) {
+  const blocks = analysisBlocks(scrape, ["pricing", "hero", "cta"]);
+  const contexts = blocks.map((block) => ({
+    context: blockText(block),
+    section: block.type,
+    heading: block.heading,
+  }));
+
+  if (!scrape.pageModel?.blocks.length) {
+    const lines = textLines(scrape);
+
+    lines.forEach((line, index) => {
+      contexts.push({
+        context: lineWindow(lines, index),
+        section: pageType === "pricing" ? "pricing" : "unknown",
+        heading: null,
+      });
+    });
+  }
+
+  return contexts.filter((item) => item.context.trim());
 }
 
 export function analyzePricing(
@@ -273,19 +462,24 @@ export function analyzePricing(
 ): PricingAnalysis {
   const sourceUrl = scrape.finalUrl;
   const lines = textLines(scrape);
+  const allCandidates = pricingContexts(scrape, pageType).flatMap((item) =>
+    candidatesFromContext({
+      context: item.context,
+      section: item.section,
+      pageType,
+      heading: item.heading,
+    }),
+  );
+  const acceptedCandidates = allCandidates.filter(
+    (candidate) => !candidate.rejected,
+  );
   const priceFacts = uniqueBy(
-    lines.flatMap((line) =>
-      priceFactsFromLine({
-        line,
-        pageType,
-        sourceUrl,
-      }),
-    ),
+    acceptedCandidates.map((candidate) => priceFact({ candidate, sourceUrl })),
     (fact) =>
       `${fact.normalized_value?.currency}:${fact.normalized_value?.amount}:${fact.normalized_value?.period ?? ""}:${sentenceCaseKey(fact.evidence_text)}`,
   );
-  const reliablePrices = priceFacts.filter(
-    (fact) => fact.confidence !== "low" || pageType === "pricing",
+  const paidPlans = [...priceFacts].sort(
+    (a, b) => priceSortValue(a) - priceSortValue(b),
   );
   const freeLine = lines.find((line) => freePattern.test(line));
   const contactSalesLine = lines.find((line) => contactSalesPattern.test(line));
@@ -293,12 +487,8 @@ export function analyzePricing(
     ? makeFact({
         field: "free_plan",
         value: "Free plan detected",
-        confidence: hasStrongPricingContext(freeLine, pageType)
-          ? "high"
-          : "medium",
-        confidenceScore: hasStrongPricingContext(freeLine, pageType)
-          ? 0.9
-          : 0.72,
+        confidence: pricingContextPattern.test(freeLine) ? "high" : "medium",
+        confidenceScore: pricingContextPattern.test(freeLine) ? 0.9 : 0.72,
         sourceUrl,
         evidenceText: freeLine,
         extractionMethod: "deterministic_regex",
@@ -315,24 +505,33 @@ export function analyzePricing(
         extractionMethod: "deterministic_regex",
       })
     : null;
-  const paidPlans = [...reliablePrices].sort(
-    (a, b) => priceSortValue(a) - priceSortValue(b),
-  );
-  const planNames = planNameFacts({ lines, priceFacts: paidPlans, sourceUrl });
+  const planNames = planNameFacts({
+    lines,
+    candidates: acceptedCandidates,
+    sourceUrl,
+  });
   const pricingTierCount = tierCountFact({
     planNames,
     freePlan,
     contactSales,
     sourceUrl,
   });
+  const debugCandidates = allCandidates.map((candidate) =>
+    candidateDebug(candidate, sourceUrl),
+  );
+  const selectedDebug = paidPlans[0]
+    ? debugCandidates.find(
+        (candidate) => candidate.raw_text === paidPlans[0]?.value,
+      ) ?? null
+    : null;
   const warnings: string[] = [];
 
   if (!paidPlans.length && !freePlan && !contactSales) {
     warnings.push("No public pricing detected.");
   }
 
-  if (priceFacts.length > reliablePrices.length) {
-    warnings.push("Some weak pricing-like matches were ignored.");
+  if (allCandidates.some((candidate) => candidate.rejected)) {
+    warnings.push("Some pricing-like matches were rejected. See pricing debug.");
   }
 
   return {
@@ -353,5 +552,12 @@ export function analyzePricing(
     pricingTierCount,
     planNames,
     warnings,
+    debug: {
+      candidates: debugCandidates,
+      selected_candidate: selectedDebug,
+      rejected_candidates: debugCandidates.filter(
+        (candidate) => !candidate.accepted,
+      ),
+    },
   };
 }

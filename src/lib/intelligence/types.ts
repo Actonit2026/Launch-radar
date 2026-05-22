@@ -27,6 +27,24 @@ export type NormalizedPrice = {
   currency: "EUR" | "USD" | "GBP";
   period?: "month" | "year";
   unit?: "user" | "seat";
+  plan?: string;
+};
+
+export type PricingCandidateDebug = {
+  raw_text: string;
+  context: string;
+  source_url: string;
+  section: string;
+  score: number;
+  accepted: boolean;
+  reasons: string[];
+  rejection_reason?: string;
+};
+
+export type PricingDebug = {
+  candidates: PricingCandidateDebug[];
+  selected_candidate: PricingCandidateDebug | null;
+  rejected_candidates: PricingCandidateDebug[];
 };
 
 export type PricingAnalysis = {
@@ -40,6 +58,7 @@ export type PricingAnalysis = {
   pricingTierCount: StructuredFact<number> | null;
   planNames: StructuredFact[];
   warnings: string[];
+  debug: PricingDebug;
 };
 
 export type PositioningAnalysis = {

@@ -1,8 +1,50 @@
 import * as cheerio from "cheerio";
 
+type CheerioElement = Parameters<cheerio.CheerioAPI>[0] & {
+  tagName?: string;
+};
+
 export type PageLink = {
   url: string;
   text: string;
+};
+
+export type PageBlockType =
+  | "hero"
+  | "pricing"
+  | "features"
+  | "cta"
+  | "faq"
+  | "comparison"
+  | "changelog"
+  | "footer"
+  | "nav"
+  | "auth"
+  | "unknown";
+
+export type PageBlock = {
+  type: PageBlockType;
+  heading: string | null;
+  text: string;
+  buttons: string[];
+  links: PageLink[];
+  confidence: number;
+  index: number;
+};
+
+export type PageModel = {
+  url: string;
+  title: string;
+  metaDescription: string;
+  hero: PageBlock | null;
+  pricingBlocks: PageBlock[];
+  featureBlocks: PageBlock[];
+  ctaBlocks: PageBlock[];
+  changelogBlocks: PageBlock[];
+  nav: PageBlock[];
+  footer: PageBlock[];
+  blocks: PageBlock[];
+  visibleContent: string;
 };
 
 const noiseSelectors = [
@@ -12,15 +54,9 @@ const noiseSelectors = [
   "svg",
   "canvas",
   "iframe",
-  "nav",
-  "footer",
-  "form",
   "template",
   "[hidden]",
   "[aria-hidden='true']",
-  "[role='navigation']",
-  "[role='banner']",
-  "[role='contentinfo']",
   "[role='dialog']",
   "[class*='cookie']",
   "[id*='cookie']",
@@ -28,10 +64,24 @@ const noiseSelectors = [
   "[id*='consent']",
   "[class*='newsletter']",
   "[id*='newsletter']",
-  "[class*='popup']",
-  "[id*='popup']",
-  "[class*='modal']",
-  "[id*='modal']",
+  "[class*='tracking']",
+  "[id*='tracking']",
+];
+
+const modelNoiseSelectors = [
+  "script",
+  "style",
+  "noscript",
+  "svg",
+  "canvas",
+  "iframe",
+  "template",
+  "[hidden]",
+  "[aria-hidden='true']",
+  "[class*='cookie']",
+  "[id*='cookie']",
+  "[class*='consent']",
+  "[id*='consent']",
   "[class*='tracking']",
   "[id*='tracking']",
 ];
@@ -149,6 +199,290 @@ function textWithSeparators(
     .after(" ");
 
   return clone.text();
+}
+
+function elementAttributes($: cheerio.CheerioAPI, element: CheerioElement) {
+  const node = $(element);
+
+  return [
+    element.tagName,
+    node.attr("id"),
+    node.attr("class"),
+    node.attr("role"),
+    node.attr("aria-label"),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function textSegmentsFromElement(
+  $: cheerio.CheerioAPI,
+  element: CheerioElement,
+) {
+  const clone = $(element).clone();
+
+  clone
+    .find("br,p,h1,h2,h3,h4,li,button,a,summary,td,th,label,span")
+    .after("\n");
+
+  return clone
+    .text()
+    .split(/\n+/)
+    .map(normalizeSegment)
+    .filter(isUsefulSegment);
+}
+
+function linksForElement(
+  $: cheerio.CheerioAPI,
+  element: CheerioElement,
+  baseUrl: string,
+) {
+  const links: PageLink[] = [];
+  const seen = new Set<string>();
+
+  $(element)
+    .find("a[href]")
+    .each((_, link) => {
+      const href = $(link).attr("href")?.trim();
+
+      if (
+        !href ||
+        href.startsWith("#") ||
+        /^(?:mailto|tel|javascript):/i.test(href)
+      ) {
+        return;
+      }
+
+      try {
+        const url = new URL(href, baseUrl);
+
+        if (url.protocol !== "http:" && url.protocol !== "https:") {
+          return;
+        }
+
+        url.hash = "";
+
+        const text =
+          normalizeSegment($(link).text()) ||
+          normalizeSegment($(link).attr("aria-label") ?? "") ||
+          normalizeSegment($(link).attr("title") ?? "");
+        const key = `${url.toString()}:${segmentKey(text)}`;
+
+        if (seen.has(key)) {
+          return;
+        }
+
+        seen.add(key);
+        links.push({ url: url.toString(), text });
+      } catch {
+        // Ignore malformed links in the page model.
+      }
+    });
+
+  return links.slice(0, 20);
+}
+
+function buttonsForElement($: cheerio.CheerioAPI, element: CheerioElement) {
+  return Array.from(
+    new Set(
+      $(element)
+        .find("button,[role='button'],input[type='submit'],a")
+        .map((_, button) =>
+          normalizeSegment(
+            $(button).text() ||
+              $(button).attr("value") ||
+              $(button).attr("aria-label") ||
+              "",
+          ),
+        )
+        .get()
+        .filter((value) => value.length >= 2 && value.length <= 80),
+    ),
+  ).slice(0, 12);
+}
+
+function headingForElement($: cheerio.CheerioAPI, element: CheerioElement) {
+  return (
+    normalizeSegment($(element).find("h1,h2,h3").first().text()) ||
+    normalizeSegment($(element).attr("aria-label") ?? "") ||
+    null
+  );
+}
+
+function hasPriceSignal(value: string) {
+  return /[$\u20AC\u00A3]\s?\d|\d\s?[$\u20AC\u00A3]|\b(?:eur|usd|gbp)\b\s?\d|\d\s?\b(?:eur|usd|gbp)\b/i.test(
+    value,
+  );
+}
+
+function classifyBlock({
+  element,
+  attrs,
+  text,
+  buttons,
+  index,
+}: {
+  element: CheerioElement;
+  attrs: string;
+  text: string;
+  buttons: string[];
+  index: number;
+}): { type: PageBlockType; confidence: number } {
+  const signalText = `${attrs}\n${text}\n${buttons.join("\n")}`;
+  const tag = element.tagName?.toLowerCase();
+  const hasPricing =
+    hasPriceSignal(signalText) ||
+    /\b(?:pricing|price|prices|plan|plans|package|packages|tier|starter|plus|pro|premium|enterprise|upgrade|billing|subscription)\b/i.test(
+      signalText,
+    );
+  const hasCta =
+    /\b(?:start free|sign up|signup|get started|book demo|schedule demo|contact sales|try free|upgrade|download|join|get plus)\b/i.test(
+      signalText,
+    );
+
+  if (tag === "nav" || /\bnav(?:igation)?\b|navbar|menu/.test(attrs)) {
+    return { type: "nav", confidence: 0.92 };
+  }
+
+  if (tag === "footer" || /\bfooter|contentinfo\b/.test(attrs)) {
+    return { type: "footer", confidence: 0.92 };
+  }
+
+  if (
+    !hasPricing &&
+    /\b(?:login|log in|sign in|password|account|dashboard)\b/i.test(signalText)
+  ) {
+    return { type: "auth", confidence: 0.82 };
+  }
+
+  if (hasPricing) {
+    return { type: "pricing", confidence: 0.88 };
+  }
+
+  if (/\b(?:changelog|updates|release notes|release-notes|releases|shipped|fixed|improved|new in)\b/i.test(signalText)) {
+    return { type: "changelog", confidence: 0.82 };
+  }
+
+  if (/\b(?:feature|features|integration|automation|workflow|dashboard|analytics|templates|alerts|personalization|voice|proposal|generation|matching)\b/i.test(signalText)) {
+    return { type: "features", confidence: 0.74 };
+  }
+
+  if (/\b(?:faq|frequently asked)\b/i.test(signalText)) {
+    return { type: "faq", confidence: 0.7 };
+  }
+
+  if (/\b(?:compare|versus|alternative)\b/i.test(signalText)) {
+    return { type: "comparison", confidence: 0.66 };
+  }
+
+  if (hasCta) {
+    return { type: "cta", confidence: 0.68 };
+  }
+
+  if (tag === "header" || /\bhero|masthead\b/.test(attrs) || index <= 1) {
+    return { type: "hero", confidence: 0.72 };
+  }
+
+  return { type: "unknown", confidence: 0.45 };
+}
+
+function shouldKeepBlock(block: PageBlock) {
+  if (!block.text && !block.heading && !block.buttons.length) {
+    return false;
+  }
+
+  if (block.text.length < 4 && !block.buttons.length) {
+    return false;
+  }
+
+  return true;
+}
+
+export function buildPageModel(html: string, baseUrl: string): PageModel {
+  const $ = cheerio.load(html);
+
+  $(modelNoiseSelectors.join(",")).remove();
+
+  const title = extractPageTitle(html);
+  const metaDescription = extractMetaDescription(html);
+  const rawElements = $("nav,footer,header,main > section,main > article,main > div,section,article,form,dialog,[role='dialog'],[class*='modal'],[id*='modal'],[class*='pricing'],[id*='pricing'],[class*='price'],[id*='price'],[class*='plan'],[id*='plan'],[class*='feature'],[id*='feature'],[class*='hero'],[id*='hero'],[class*='cta'],[id*='cta'],[class*='changelog'],[id*='changelog'],table")
+    .toArray()
+    .slice(0, 120);
+  const bodyFallback =
+    rawElements.length > 0 ? rawElements : $("main,body").toArray().slice(0, 1);
+  const seen = new Set<string>();
+  const blocks: PageBlock[] = [];
+
+  bodyFallback.forEach((element, rawIndex) => {
+    const segments = textSegmentsFromElement($, element);
+    const text = segments.join("\n");
+    const heading = headingForElement($, element);
+    const buttons = buttonsForElement($, element);
+    const attrs = elementAttributes($, element);
+    const key = segmentKey(`${heading ?? ""}\n${text}\n${buttons.join("\n")}`);
+
+    if (!key || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+
+    const classification = classifyBlock({
+      element,
+      attrs,
+      text,
+      buttons,
+      index: rawIndex,
+    });
+    const block: PageBlock = {
+      type: classification.type,
+      heading,
+      text,
+      buttons,
+      links: linksForElement($, element, baseUrl),
+      confidence: classification.confidence,
+      index: blocks.length,
+    };
+
+    if (shouldKeepBlock(block)) {
+      blocks.push(block);
+    }
+  });
+
+  const visibleBlocks = blocks.filter(
+    (block) => !["nav", "footer", "auth"].includes(block.type),
+  );
+  const hero =
+    visibleBlocks.find((block) => block.type === "hero") ??
+    visibleBlocks.find((block) => block.heading || block.text) ??
+    null;
+  const visibleContent = visibleBlocks
+    .flatMap((block) => [
+      block.heading ?? "",
+      block.text,
+      ...block.buttons,
+      ...block.links.map((link) => link.text),
+    ])
+    .filter(Boolean)
+    .join("\n");
+
+  return {
+    url: baseUrl,
+    title,
+    metaDescription,
+    hero,
+    pricingBlocks: visibleBlocks.filter((block) => block.type === "pricing"),
+    featureBlocks: visibleBlocks.filter((block) => block.type === "features"),
+    ctaBlocks: visibleBlocks.filter((block) => block.type === "cta"),
+    changelogBlocks: visibleBlocks.filter(
+      (block) => block.type === "changelog",
+    ),
+    nav: blocks.filter((block) => block.type === "nav"),
+    footer: blocks.filter((block) => block.type === "footer"),
+    blocks,
+    visibleContent,
+  };
 }
 
 export function extractMeaningfulText(html: string) {
