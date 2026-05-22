@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint src next.config.ts --ext .js,.jsx,.ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "test:phase11": "node scripts/phase11-checks.mjs"
+    "test:phase11": "node scripts/phase11-checks.mjs",
+    "prelaunch:scorecard": "node scripts/prelaunch-scorecard.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "latest",

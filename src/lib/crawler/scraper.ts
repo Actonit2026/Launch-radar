@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { getChromiumLaunchOptions } from "@/lib/crawler/browser";
+import { crawlerUserAgent, isAllowedByRobots } from "@/lib/crawler/robots";
 import {
   extractMeaningfulText,
   extractMetaDescription,
@@ -21,11 +22,17 @@ export type ScrapedPage = {
   hash: string;
   links: PageLink[];
   pageModel?: PageModel;
+  rendering?: "static" | "browser";
+  javascriptHeavy?: boolean;
+  warnings?: string[];
   error?: string;
 };
 
 const blockedResourceTypes = new Set(["font", "image", "media"]);
 const fetchTimeoutMs = 20000;
+const staticMeaningfulTextThreshold = 140;
+const domainDelayMs = 500;
+const lastFetchByDomain = new Map<string, number>();
 
 export function hashText(value: string) {
   return createHash("sha256").update(value).digest("hex");
@@ -42,8 +49,43 @@ function failedScrape(url: string, error: unknown): ScrapedPage {
     rawText: "",
     hash: hashText(""),
     links: [],
+    rendering: "static",
     error: error instanceof Error ? error.message : "Unknown scrape error.",
   };
+}
+
+function userFriendlyBlockedMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (/robots\.txt/i.test(message)) {
+    return "This page disallows automated public analysis via robots.txt.";
+  }
+
+  if (/abort|timeout/i.test(message)) {
+    return "This page could not be analyzed before the crawler timeout.";
+  }
+
+  if (/fetch failed|network|certificate|ECONN|ENOTFOUND/i.test(message)) {
+    return "This page could not be analyzed. The site may block automated public fetches.";
+  }
+
+  return message || "This page could not be analyzed.";
+}
+
+function appearsJavaScriptHeavy(html: string, rawText: string) {
+  const scriptCount = (html.match(/<script\b/gi) ?? []).length;
+  const appShellSignals =
+    /\b(?:__NEXT_DATA__|id=["']root["']|id=["']__next["']|data-reactroot|vite|webpack|app-root|ng-version)\b/i.test(
+      html,
+    );
+  const hasLargeScriptPayload = scriptCount >= 5 || html.length > 80_000;
+
+  return rawText.trim().length < staticMeaningfulTextThreshold &&
+    (appShellSignals || hasLargeScriptPayload);
+}
+
+function javascriptHeavyWarning() {
+  return "This site appears JavaScript-heavy. Static analysis was limited.";
 }
 
 function browserFallbackEnabled() {
@@ -57,18 +99,49 @@ function browserFallbackEnabled() {
   );
 }
 
+function domainFor(url: string) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return url;
+  }
+}
+
+async function waitForDomainSlot(url: string) {
+  const domain = domainFor(url);
+  const lastFetch = lastFetchByDomain.get(domain) ?? 0;
+  const waitMs = Math.max(0, domainDelayMs - (Date.now() - lastFetch));
+
+  if (waitMs) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+
+  lastFetchByDomain.set(domain, Date.now());
+}
+
 async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
 
   try {
+    await waitForDomainSlot(url);
+
+    if (!(await isAllowedByRobots(url))) {
+      return {
+        ...failedScrape(
+          url,
+          new Error("This page disallows automated public analysis via robots.txt."),
+        ),
+        status: 403,
+      };
+    }
+
     const response = await fetch(url, {
       redirect: "follow",
       signal: controller.signal,
       headers: {
         accept: "text/html,application/xhtml+xml",
-        "user-agent":
-          "Mozilla/5.0 (compatible; LaunchRadar/0.1; +https://launchradar.local)",
+        "user-agent": crawlerUserAgent(),
       },
     });
     const html = await response.text();
@@ -76,6 +149,8 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
     const rawText = extractMeaningfulText(html);
     const pageModel = buildPageModel(html, finalUrl);
     const status = response.status;
+    const javascriptHeavy = appearsJavaScriptHeavy(html, rawText);
+    const warnings = javascriptHeavy ? [javascriptHeavyWarning()] : [];
 
     return {
       requestedUrl: url,
@@ -83,15 +158,24 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
       title: extractPageTitle(html),
       metaDescription: extractMetaDescription(html),
       status,
-      ok: response.ok && rawText.length > 0,
+      ok: response.ok && rawText.length > 0 && !javascriptHeavy,
       rawText,
       hash: hashText(rawText),
       links: extractPageLinks(html, finalUrl),
       pageModel,
-      ...(rawText ? {} : { error: "No meaningful text extracted." }),
+      rendering: "static",
+      javascriptHeavy,
+      warnings,
+      ...(rawText
+        ? {}
+        : {
+            error: javascriptHeavy
+              ? javascriptHeavyWarning()
+              : "No meaningful text extracted.",
+          }),
     };
   } catch (error) {
-    return failedScrape(url, error);
+    return failedScrape(url, new Error(userFriendlyBlockedMessage(error)));
   } finally {
     clearTimeout(timeout);
   }
@@ -106,8 +190,7 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
   const browser = await chromium.launch(getChromiumLaunchOptions());
   const context = await browser.newContext({
     ignoreHTTPSErrors: true,
-    userAgent:
-      "Mozilla/5.0 (compatible; LaunchRadar/0.1; +https://launchradar.local)",
+    userAgent: crawlerUserAgent(),
     viewport: {
       width: 1365,
       height: 900,
@@ -158,9 +241,10 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
           hash: hashText(rawText),
           links: extractPageLinks(html, finalUrl),
           pageModel,
+          rendering: "browser",
         });
       } catch (error) {
-        results.push(failedScrape(url, error));
+        results.push(failedScrape(url, new Error(userFriendlyBlockedMessage(error))));
       } finally {
         await page.close().catch(() => undefined);
       }
@@ -198,14 +282,13 @@ export async function scrapePages(urls: string[]): Promise<ScrapedPage[]> {
       return browserResult?.ok ? browserResult : result;
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Browser fallback failed.";
+    const message = userFriendlyBlockedMessage(error);
 
     return fetchResults.map((result) =>
       urlsNeedingBrowser.includes(result.requestedUrl)
         ? {
             ...result,
-            error: `${result.error ?? "Fetch scrape failed."} Browser fallback failed: ${message}`,
+            error: result.error ?? message,
           }
         : result,
     );

@@ -20,7 +20,7 @@ const planDefaults: Record<
   free: {
     label: "Free",
     competitorLimit: 3,
-    scanIntervalHours: 24,
+    scanIntervalHours: 168,
   },
   pro: {
     label: "Pro",

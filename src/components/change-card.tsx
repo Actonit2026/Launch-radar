@@ -93,6 +93,12 @@ export function ChangeCard({
 }: ChangeCardProps) {
   const evidence = evidenceItems(evidenceJson);
   const sourceUrl = evidence[0]?.source_url || pageUrl;
+  const confidence =
+    evidence.length >= 2
+      ? "high confidence"
+      : evidence.length
+        ? "medium confidence"
+        : "low confidence";
 
   return (
     <article className="rounded-md border border-ink/10 p-4">
@@ -106,6 +112,9 @@ export function ChangeCard({
           )}`}
         >
           {severity}
+        </span>
+        <span className="rounded-full bg-paper px-3 py-1 text-xs font-semibold text-ink/60">
+          {confidence}
         </span>
         <span className="text-xs text-ink/45">
           {formatDateTime(createdAt)}

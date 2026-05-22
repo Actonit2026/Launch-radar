@@ -34,6 +34,7 @@ import {
   buildManualScanDebugPayload,
   saveScanDebugLog,
 } from "@/lib/scan-debug";
+import { cleanupSnapshotRetentionForUser } from "@/lib/retention";
 import {
   notificationForPage,
   sendChangeNotification,
@@ -98,6 +99,10 @@ function byRequestedUrl(scrapes: ScrapedPage[]) {
 function scrapeFailureMessage(scrape: ScrapedPage | undefined) {
   if (!scrape) {
     return "No scrape result.";
+  }
+
+  if (scrape.javascriptHeavy) {
+    return "This site appears JavaScript-heavy. Static analysis was limited.";
   }
 
   if (scrape.error) {
@@ -535,6 +540,11 @@ export async function createInitialMonitoringSetup(
   });
 
   if (options?.userId) {
+    await cleanupSnapshotRetentionForUser({
+      supabase,
+      userId: options.userId,
+    });
+
     await recordUsageEvent({
       supabase,
       userId: options.userId,
@@ -810,6 +820,11 @@ export async function rerunCompetitorIntelligence(
   });
 
   if (userId) {
+    await cleanupSnapshotRetentionForUser({
+      supabase,
+      userId,
+    });
+
     await recordUsageEvent({
       supabase,
       userId,
@@ -1133,6 +1148,11 @@ export async function scanMonitoredPagesForUser(
       errors,
     });
   }
+
+  await cleanupSnapshotRetentionForUser({
+    supabase,
+    userId,
+  });
 
   await recordUsageEvent({
     supabase,

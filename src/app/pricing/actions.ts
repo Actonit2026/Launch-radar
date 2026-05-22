@@ -5,10 +5,10 @@ import { redirect } from "next/navigation";
 import { getAppUrl } from "@/lib/app-url";
 import { getCurrentUser } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
-import { getProPriceId, getStripe } from "@/lib/stripe";
+import { getAnnualProPriceId, getProPriceId, getStripe } from "@/lib/stripe";
 import { createClient } from "@/lib/supabase/server";
 
-export async function createProCheckoutSessionAction() {
+async function createCheckoutSessionAction(priceId: string) {
   const user = await getCurrentUser();
 
   if (!user) {
@@ -57,7 +57,7 @@ export async function createProCheckoutSessionAction() {
     customer: customerId,
     line_items: [
       {
-        price: getProPriceId(),
+        price: priceId,
         quantity: 1,
       },
     ],
@@ -79,6 +79,14 @@ export async function createProCheckoutSessionAction() {
   }
 
   redirect(session.url);
+}
+
+export async function createProCheckoutSessionAction() {
+  return createCheckoutSessionAction(getProPriceId());
+}
+
+export async function createAnnualProCheckoutSessionAction() {
+  return createCheckoutSessionAction(getAnnualProPriceId());
 }
 
 export async function createBillingPortalSessionAction() {

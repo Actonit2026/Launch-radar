@@ -48,7 +48,7 @@ async function setUserPlanFromSubscription({
     : {
         plan: "free" as const,
         competitor_limit: 3,
-        scan_interval_hours: 24,
+        scan_interval_hours: 168,
         subscription_status: subscription.status,
         current_period_end: subscriptionPeriodEnd(subscription),
         billing_customer_id: customerId,

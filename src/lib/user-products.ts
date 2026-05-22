@@ -9,6 +9,7 @@ import {
   parseStructuredFacts,
 } from "@/lib/product-recommendations";
 import { estimateScanCostEur, recordUsageEvent } from "@/lib/usage";
+import { cleanupSnapshotRetentionForUser } from "@/lib/retention";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -263,6 +264,11 @@ export async function analyzeUserProduct({
         pages_analyzed: intelligencePages.length,
         recommendations_created: recommendations.length,
       },
+    });
+
+    await cleanupSnapshotRetentionForUser({
+      supabase,
+      userId,
     });
 
     return {

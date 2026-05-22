@@ -6,9 +6,15 @@ type Supabase = SupabaseClient<Database>;
 
 export type UsageEventType =
   | "competitor_initial_scan"
+  | "first_competitor_added"
+  | "first_scan_completed"
+  | "first_product_added"
   | "manual_scan"
   | "manual_analysis"
   | "product_scan"
+  | "browser_render"
+  | "weekly_digest"
+  | "recommendation_viewed"
   | "ai_summary"
   | "recommendations_generated"
   | "recommendation_feedback";
@@ -41,18 +47,37 @@ export function getUsageConfig() {
     monthlyCostBudgetEur: readNumberEnv("MONTHLY_COST_BUDGET_EUR", 20),
     aiMonthlyTokenLimit: readNumberEnv("AI_MONTHLY_TOKEN_LIMIT", 400_000),
     maxScansPerDayGlobal: readNumberEnv("MAX_SCANS_PER_DAY_GLOBAL", 80),
+    maxScansPerUserPerDayFree: readNumberEnv(
+      "MAX_SCANS_PER_USER_PER_DAY_FREE",
+      1,
+    ),
+    maxScansPerUserPerDayPro: readNumberEnv(
+      "MAX_SCANS_PER_USER_PER_DAY_PRO",
+      5,
+    ),
     maxAiCallsPerDayGlobal: readNumberEnvAny(
       ["MAX_AI_CALLS_GLOBAL_PER_DAY", "MAX_AI_CALLS_PER_DAY_GLOBAL"],
       50,
     ),
     maxAiCallsPerUserPerDay: readNumberEnv("MAX_AI_CALLS_PER_USER_PER_DAY", 2),
     maxPagesPerScan: readNumberEnv("MAX_PAGES_PER_SCAN", 15),
+    maxBrowserRenderPerUserPerDay: readNumberEnv(
+      "MAX_BROWSER_RENDER_PER_USER_PER_DAY",
+      3,
+    ),
+    maxBrowserRenderGlobalPerDay: readNumberEnv(
+      "MAX_BROWSER_RENDER_GLOBAL_PER_DAY",
+      20,
+    ),
     aiEstimatedEurPer1kTokens: readNumberEnv(
       "AI_ESTIMATED_EUR_PER_1K_TOKENS",
       0.0002,
     ),
   };
 }
+
+export const USAGE_DEFERRED_MESSAGE =
+  "Analysis deferred due to usage limits. It will retry later.";
 
 function sinceHours(hours: number) {
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -194,8 +219,7 @@ async function budgetDecision(supabase: Supabase): Promise<UsageDecision> {
   if (monthlyCost >= config.monthlyCostBudgetEur) {
     return {
       allowed: false,
-      reason:
-        "Scan deferred because the configured monthly cost budget has been reached.",
+      reason: USAGE_DEFERRED_MESSAGE,
     };
   }
 
@@ -225,7 +249,10 @@ export async function canRunManualScan({
     }),
   ]);
   const config = getUsageConfig();
-  const userLimit = plan.name === "pro" ? 3 : 1;
+  const userLimit =
+    plan.name === "pro"
+      ? config.maxScansPerUserPerDayPro
+      : config.maxScansPerUserPerDayFree;
 
   if (!budget.allowed) {
     return budget;
@@ -234,7 +261,7 @@ export async function canRunManualScan({
   if (globalScans >= config.maxScansPerDayGlobal) {
     return {
       allowed: false,
-      reason: "Scan queued because the global daily scan limit has been reached.",
+      reason: USAGE_DEFERRED_MESSAGE,
     };
   }
 
@@ -256,7 +283,11 @@ export async function canRunManualAnalysis({
   userId: string;
 }): Promise<UsageDecision> {
   const plan = await getPlanForUser(supabase, userId);
-  const userLimit = plan.name === "pro" ? 3 : 1;
+  const config = getUsageConfig();
+  const userLimit =
+    plan.name === "pro"
+      ? config.maxScansPerUserPerDayPro
+      : config.maxScansPerUserPerDayFree;
   const userRuns = await countEvents({
     supabase,
     userId,
@@ -282,7 +313,11 @@ export async function canRunProductScan({
   userId: string;
 }): Promise<UsageDecision> {
   const plan = await getPlanForUser(supabase, userId);
-  const userLimit = plan.name === "pro" ? 3 : 1;
+  const config = getUsageConfig();
+  const userLimit =
+    plan.name === "pro"
+      ? config.maxScansPerUserPerDayPro
+      : config.maxScansPerUserPerDayFree;
   const userRuns = await countEvents({
     supabase,
     userId,
@@ -350,6 +385,59 @@ export async function canRunAiSummary({
     return {
       allowed: false,
       reason: "AI summary skipped because the monthly AI token limit was reached.",
+    };
+  }
+
+  return { allowed: true };
+}
+
+export async function canRunBrowserRender({
+  supabase,
+  userId,
+}: {
+  supabase: Supabase;
+  userId: string;
+}): Promise<UsageDecision> {
+  const config = getUsageConfig();
+  const plan = await getPlanForUser(supabase, userId);
+
+  if (plan.name !== "pro") {
+    return {
+      allowed: false,
+      reason: "Browser rendering is reserved for Pro usage limits.",
+    };
+  }
+
+  const [budget, globalRenders, userRenders] = await Promise.all([
+    budgetDecision(supabase),
+    countEvents({
+      supabase,
+      eventType: "browser_render",
+      since: sinceHours(24),
+    }),
+    countEvents({
+      supabase,
+      userId,
+      eventType: "browser_render",
+      since: sinceHours(24),
+    }),
+  ]);
+
+  if (!budget.allowed) {
+    return budget;
+  }
+
+  if (globalRenders >= config.maxBrowserRenderGlobalPerDay) {
+    return {
+      allowed: false,
+      reason: USAGE_DEFERRED_MESSAGE,
+    };
+  }
+
+  if (userRenders >= config.maxBrowserRenderPerUserPerDay) {
+    return {
+      allowed: false,
+      reason: USAGE_DEFERRED_MESSAGE,
     };
   }
 

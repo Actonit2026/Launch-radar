@@ -30,6 +30,7 @@ export function analyzePageIntelligence({
     ...changelog.recentUpdateTitles,
   ];
   const warnings = [
+    ...(scrape.warnings ?? []),
     ...pricing.warnings,
     ...positioning.warnings,
     ...ctas.warnings,

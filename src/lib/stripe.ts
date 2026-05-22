@@ -6,6 +6,10 @@ export function isStripeConfigured() {
   return Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRO_PRICE_ID);
 }
 
+export function hasAnnualProPriceId() {
+  return Boolean(process.env.STRIPE_PRO_ANNUAL_PRICE_ID);
+}
+
 export function getStripe() {
   if (!process.env.STRIPE_SECRET_KEY) {
     throw new Error("STRIPE_SECRET_KEY is not configured.");
@@ -26,6 +30,16 @@ export function getProPriceId() {
 
   if (!priceId) {
     throw new Error("STRIPE_PRO_PRICE_ID is not configured.");
+  }
+
+  return priceId;
+}
+
+export function getAnnualProPriceId() {
+  const priceId = process.env.STRIPE_PRO_ANNUAL_PRICE_ID;
+
+  if (!priceId) {
+    throw new Error("STRIPE_PRO_ANNUAL_PRICE_ID is not configured.");
   }
 
   return priceId;

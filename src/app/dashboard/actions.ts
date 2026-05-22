@@ -19,7 +19,7 @@ import {
   isSupabaseConfigured,
   supabaseConfigMessage,
 } from "@/lib/supabase/config";
-import { canRunManualAnalysis } from "@/lib/usage";
+import { canRunManualAnalysis, recordUsageEvent } from "@/lib/usage";
 
 export type CompetitorFormState = {
   error?: string;
@@ -195,6 +195,28 @@ export async function createCompetitorAction(
       .eq("user_id", user.id);
 
     return { error: setup.error };
+  }
+
+  await recordUsageEvent({
+    supabase,
+    userId: user.id,
+    eventType: "first_competitor_added",
+    metadata: {
+      competitor_id: competitor.id,
+    },
+  });
+
+  if (setup.data?.snapshotsCreated || setup.data?.intelligenceSnapshotCreated) {
+    await recordUsageEvent({
+      supabase,
+      userId: user.id,
+      eventType: "first_scan_completed",
+      metadata: {
+        competitor_id: competitor.id,
+        snapshots_created: setup.data.snapshotsCreated,
+        intelligence_snapshot_created: setup.data.intelligenceSnapshotCreated,
+      },
+    });
   }
 
   revalidatePath("/dashboard");

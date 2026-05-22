@@ -170,6 +170,17 @@ export async function saveUserProductAction(
     return { error: analysis.error };
   }
 
+  if (!existingProduct) {
+    await recordUsageEvent({
+      supabase,
+      userId: user.id,
+      eventType: "first_product_added",
+      metadata: {
+        product_id: product.id,
+      },
+    });
+  }
+
   return {
     message: `Analyzed ${parsed.name}. ${
       analysis.data?.pagesAnalyzed ?? 0
@@ -256,6 +267,10 @@ export async function saveRecommendationFeedbackAction(formData: FormData) {
     "not_useful",
     "already_knew",
     "implemented",
+    "saved",
+    "rejected",
+    "hidden",
+    "resolved",
   ]);
 
   if (!recommendationId || !allowedFeedback.has(feedback)) {
@@ -272,7 +287,11 @@ export async function saveRecommendationFeedbackAction(formData: FormData) {
         | "useful"
         | "not_useful"
         | "already_knew"
-        | "implemented",
+        | "implemented"
+        | "saved"
+        | "rejected"
+        | "hidden"
+        | "resolved",
     },
     { onConflict: "recommendation_id,user_id" },
   );

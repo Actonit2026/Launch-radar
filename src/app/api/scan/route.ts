@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedContext } from "@/lib/api-auth";
+import { enqueueManualScan, scanQueueEnabled } from "@/lib/scan-queue";
 import { scanMonitoredPagesForUser } from "@/lib/scanner";
 import {
   isSupabaseConfigured,
   supabaseConfigMessage,
 } from "@/lib/supabase/config";
-import { canRunManualScan } from "@/lib/usage";
+import { canRunManualScan, USAGE_DEFERRED_MESSAGE } from "@/lib/usage";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -33,10 +34,29 @@ async function runScan(request: Request) {
     if (!guard.allowed) {
       return NextResponse.json(
         {
-          error: guard.reason ?? "Scan deferred due to usage limits.",
+          error: guard.reason ?? USAGE_DEFERRED_MESSAGE,
           deferred: true,
         },
         { status: 429 },
+      );
+    }
+
+    if (scanQueueEnabled()) {
+      const queued = await enqueueManualScan({
+        supabase: context.supabase,
+        userId: context.user.id,
+      });
+
+      return NextResponse.json(
+        {
+          queued: true,
+          status: queued.job.status,
+          jobId: queued.job.id,
+          message: queued.created
+            ? "Scan queued. It will run shortly."
+            : "Scan already queued.",
+        },
+        { status: 202 },
       );
     }
 
@@ -51,11 +71,9 @@ async function runScan(request: Request) {
 
     return NextResponse.json(result.data);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Scan failed.";
-
     console.error("Scan failed", error);
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: "Scan failed." }, { status: 500 });
   }
 }
 

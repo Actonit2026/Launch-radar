@@ -55,6 +55,8 @@ const freePattern =
   /\b(?:free forever|free plan|free tier|free trial|start free|free)\b/i;
 const contactSalesPattern =
   /\b(?:contact sales|talk to sales|custom pricing|request pricing|enterprise pricing)\b/i;
+const weakContactSalesPattern =
+  /\b(?:contact us|book a demo|request a quote|request quote|sales-led pricing)\b/i;
 const monthlyPattern =
   /\b(?:\/\s?mo|\/\s?month|per month|monthly|billed monthly|paid monthly|month)\b/i;
 const yearlyPattern =
@@ -482,7 +484,13 @@ export function analyzePricing(
     (a, b) => priceSortValue(a) - priceSortValue(b),
   );
   const freeLine = lines.find((line) => freePattern.test(line));
-  const contactSalesLine = lines.find((line) => contactSalesPattern.test(line));
+  const hasPricingContext =
+    pageType === "pricing" || lines.some((line) => pricingContextPattern.test(line));
+  const contactSalesLine =
+    lines.find((line) => contactSalesPattern.test(line)) ??
+    (hasPricingContext
+      ? lines.find((line) => weakContactSalesPattern.test(line))
+      : undefined);
   const freePlan = freeLine
     ? makeFact({
         field: "free_plan",
@@ -527,7 +535,7 @@ export function analyzePricing(
   const warnings: string[] = [];
 
   if (!paidPlans.length && !freePlan && !contactSales) {
-    warnings.push("No public pricing detected.");
+    warnings.push("No public pricing block detected on this URL.");
   }
 
   if (allCandidates.some((candidate) => candidate.rejected)) {

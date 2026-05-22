@@ -324,6 +324,10 @@ function competitorConsensusSummary(supports: CompetitorSupport[]) {
   };
 }
 
+function comparisonCount(supports: CompetitorSupport[], totalCompetitors: number) {
+  return `${supports.length} out of ${totalCompetitors} tracked competitors`;
+}
+
 function createRecommendation({
   type,
   title,
@@ -428,18 +432,19 @@ function pricingVisibilityRecommendation(
     "visible_price",
     "free_plan",
   ]);
+  const count = comparisonCount(supports, input.competitorSnapshots.length);
 
   return createRecommendation({
     type: "pricing_visibility",
     title: "Test whether public pricing would reduce sales friction",
     explanation:
-      "Your public page points visitors toward contacting sales or booking a conversation, while tracked competitors expose pricing or a free plan on public pages.",
+      `${count} display public pricing or a free plan. Your public page points visitors toward contacting sales or booking a conversation instead.`,
     whyThisMatters:
       "Public pricing can reduce evaluation friction for self-serve buyers, but this is only worth testing if it fits your sales motion.",
     userFact: userContactSales,
     supports,
     reasoning:
-      "Pricing visibility appears in competitor evidence, while the user product evidence points to a contact-sales path instead of a visible price.",
+      `${count} provide pricing visibility evidence, while the user product evidence points to a contact-sales path instead of a visible price.`,
   });
 }
 
@@ -479,18 +484,19 @@ function ctaRecommendation(
         : null;
     })
     .filter((item): item is CompetitorSupport => Boolean(item));
+  const count = comparisonCount(supports, input.competitorSnapshots.length);
 
   return createRecommendation({
     type: "cta_clarity",
     title: "Make the primary CTA a clearer next step",
     explanation:
-      "Your detected primary CTA is passive or unclear, while tracked competitors use direct trial, signup, or demo actions.",
+      `${count} use direct trial, signup, get-started, or demo CTAs. Your detected primary CTA is passive or unclear.`,
     whyThisMatters:
       "A decisive CTA can reduce decision friction by making the next action obvious. This does not guarantee higher conversion, but it is a low-effort test.",
     userFact: userCta,
     supports,
     reasoning:
-      "Competitor CTAs show clearer conversion intent than the user product CTA detected from public page evidence.",
+      `${count} show clearer conversion intent than the user product CTA detected from public page evidence.`,
   });
 }
 
@@ -516,18 +522,19 @@ function positioningRecommendation(
     "product_category",
     "main_value_prop",
   ]);
+  const count = comparisonCount(supports, input.competitorSnapshots.length);
 
   return createRecommendation({
     type: "positioning_specificity",
     title: "Clarify who the homepage is for",
     explanation:
-      "Your homepage evidence gives a headline or value statement, but LaunchRadar did not detect a clear customer, category, or use case. Tracked competitors state more specific positioning signals.",
+      `${count} state clearer customer, category, or value-prop signals. Your homepage evidence gives a headline or value statement, but LaunchRadar did not detect a clear customer, category, or use case.`,
     whyThisMatters:
       "Specific positioning can help visitors quickly decide whether the product is relevant. The evidence supports a clarity test, not a claim that the current positioning is wrong.",
     userFact: userHeadline,
     supports,
     reasoning:
-      "Competitors provide clearer customer/category/use-case signals than the user product facts detected from public page evidence.",
+      `${count} provide clearer customer/category/use-case signals than the user product facts detected from public page evidence.`,
     actionability: "medium",
   });
 }

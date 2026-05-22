@@ -17,6 +17,17 @@ const defaultPages: Array<{ pageType: PageType; path: string }> = [
   { pageType: "changelog", path: "/changelog" },
 ];
 
+const privateHostPattern =
+  /^(?:localhost|0\.0\.0\.0|127\.|10\.|192\.168\.|169\.254\.|172\.(?:1[6-9]|2\d|3[01])\.|::1$|\[::1\]$|::ffff:127\.)/i;
+
+const blockedPrivateHostnames = new Set([
+  "metadata.google.internal",
+  "169.254.169.254",
+]);
+
+const blockedCrawlPathPattern =
+  /\/(?:login|log-in|signin|sign-in|signup|sign-up|auth|account|checkout|cart|billing-portal|admin|dashboard)(?:\/|$)/i;
+
 export const manualPageTypes = [
   "pricing",
   "features",
@@ -64,6 +75,35 @@ function normalizeHost(value: string) {
   return value.toLowerCase().replace(/^www\./, "");
 }
 
+function assertSafePublicHttpUrl(url: URL) {
+  const hostname = url.hostname.toLowerCase();
+
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error("Unsupported URL protocol.");
+  }
+
+  if (!hostname || url.username || url.password) {
+    throw new Error("Enter a valid website URL.");
+  }
+
+  if (
+    privateHostPattern.test(hostname) ||
+    hostname.endsWith(".local") ||
+    hostname.endsWith(".internal") ||
+    blockedPrivateHostnames.has(hostname)
+  ) {
+    throw new Error("Enter a public website URL.");
+  }
+}
+
+export function isBlockedCrawlPath(url: string) {
+  try {
+    return blockedCrawlPathPattern.test(new URL(url).pathname);
+  } catch {
+    return true;
+  }
+}
+
 export function parseCompetitorUrl(input: string): ParsedCompetitorUrl {
   const trimmed = input.trim();
 
@@ -76,17 +116,15 @@ export function parseCompetitorUrl(input: string): ParsedCompetitorUrl {
     : `https://${trimmed}`;
   const url = new URL(candidate);
 
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error("Unsupported URL protocol.");
-  }
-
-  if (!url.hostname || url.username || url.password) {
-    throw new Error("Enter a valid website URL.");
-  }
+  assertSafePublicHttpUrl(url);
 
   url.hash = "";
   normalizePathname(url);
   stripTrackingParams(url);
+
+  if (isBlockedCrawlPath(url.toString())) {
+    throw new Error("Use a public marketing, product, pricing, docs, or update page.");
+  }
 
   const baseUrl = url.origin;
   const submittedUrl = url.toString();
@@ -123,9 +161,7 @@ export function parseManualPageUrl(input: string, baseUrl: string) {
   const pageUrl = new URL(candidate, baseUrl);
   const base = new URL(baseUrl);
 
-  if (pageUrl.protocol !== "http:" && pageUrl.protocol !== "https:") {
-    throw new Error("Unsupported URL protocol.");
-  }
+  assertSafePublicHttpUrl(pageUrl);
 
   if (normalizeHost(pageUrl.hostname) !== normalizeHost(base.hostname)) {
     throw new Error("Manual pages must be on the competitor domain.");
@@ -134,6 +170,10 @@ export function parseManualPageUrl(input: string, baseUrl: string) {
   pageUrl.hash = "";
   normalizePathname(pageUrl);
   stripTrackingParams(pageUrl);
+
+  if (isBlockedCrawlPath(pageUrl.toString())) {
+    throw new Error("Manual pages must be public pages, not login, account, checkout, or dashboard pages.");
+  }
 
   return pageUrl.toString();
 }

@@ -91,12 +91,14 @@ The current build also includes:
 - Usage events, AI summary caching, scan limits, and global budget guardrails
 - Deterministic page modeling for hero, pricing, CTA, feature, changelog, nav, footer, and auth sections
 - Cost-safe analysis mode where AI summaries are optional and core extraction works without AI
+- Pre-launch hardening for public crawler identity, Terms, Privacy, health checks, retention cleanup, weekly digests, optional scan queueing, SSRF/path blocking, robots-aware crawling, and admin cost metrics
 
 ## Local Setup
 
 1. Copy `.env.example` to `.env.local`.
 2. Add your Supabase project URL and anon key.
 3. Run `npm run dev`.
+4. Run `npm run test:phase11` and `npm run prelaunch:scorecard` before launch changes.
 
 ## Production Environment
 
@@ -114,19 +116,35 @@ Required:
 - `STRIPE_SECRET_KEY`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRO_PRICE_ID`
+- `STRIPE_PRO_ANNUAL_PRICE_ID` for the annual Pro checkout path
+- `CRON_SECRET` for scheduled worker and maintenance endpoints
+- `ADMIN_EMAILS` for the internal admin metrics page
 
 Stripe webhook endpoint:
 
 - `/api/stripe/webhook`
 - listen for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`
 
+Scheduled endpoints:
+
+- `POST /api/scan-worker` processes one queued scan job when `ASYNC_SCAN_QUEUE_ENABLED=1`
+- `POST /api/weekly-digest` sends weekly no-change/change digest emails
+- `POST /api/maintenance/cleanup` applies snapshot retention cleanup
+
 Cost guard defaults:
 
 - `MONTHLY_COST_BUDGET_EUR=20`
 - `AI_MONTHLY_TOKEN_LIMIT=400000`
 - `MAX_SCANS_PER_DAY_GLOBAL=80`
+- `MAX_SCANS_PER_USER_PER_DAY_FREE=1`
+- `MAX_SCANS_PER_USER_PER_DAY_PRO=5`
 - `MAX_AI_CALLS_PER_USER_PER_DAY=2`
 - `MAX_AI_CALLS_GLOBAL_PER_DAY=50`
 - `MAX_AI_CALLS_PER_DAY_GLOBAL=50`
+- `MAX_BROWSER_RENDER_PER_USER_PER_DAY=3`
+- `MAX_BROWSER_RENDER_GLOBAL_PER_DAY=20`
 - `MAX_PAGES_PER_SCAN=15`
 - `AI_ESTIMATED_EUR_PER_1K_TOKENS=0.0002`
+- `ASYNC_SCAN_QUEUE_ENABLED=0`
+- `LAUNCHRADAR_USER_AGENT=LaunchRadarBot/1.0`
+- `LAUNCHRADAR_IGNORE_ROBOTS=0`

@@ -194,7 +194,7 @@ function deterministicSummary({
   const unknowns: string[] = [];
 
   if (!lowestPrice && !contactSales) {
-    unknowns.push("No public pricing detected.");
+    unknowns.push("No public pricing block detected on this URL.");
   }
 
   if (!headline && !valueProp) {

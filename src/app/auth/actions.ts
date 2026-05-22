@@ -139,7 +139,7 @@ export async function signUpAction(
     email: credentials.email,
     password: credentials.password,
     options: {
-      emailRedirectTo: `${appUrl}/auth/confirm?next=/dashboard`,
+      emailRedirectTo: `${appUrl}/auth/confirm?next=/dashboard/onboarding`,
     },
   });
 
@@ -149,7 +149,7 @@ export async function signUpAction(
 
   if (data.session) {
     revalidatePath("/", "layout");
-    redirect("/dashboard");
+    redirect("/dashboard/onboarding");
   }
 
   return {

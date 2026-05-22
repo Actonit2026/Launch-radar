@@ -12,11 +12,13 @@ const outDir = await mkdtemp(path.join(tmpdir(), "launchradar-phase11-"));
 
 delete process.env.OPENAI_API_KEY;
 delete process.env.OPENAI_SUMMARY_MODEL;
+process.env.LAUNCHRADAR_BROWSER_FALLBACK = "0";
 
 const sourceFiles = [
   "src/lib/database.types.ts",
   "src/lib/urls.ts",
   "src/lib/crawler/text.ts",
+  "src/lib/crawler/robots.ts",
   "src/lib/crawler/browser.ts",
   "src/lib/crawler/scraper.ts",
   "src/lib/change-detection.ts",
@@ -198,6 +200,14 @@ async function withFixtureSite(callback) {
           }),
         );
         return;
+      case "/spa":
+        response(
+          res,
+          200,
+          "text/html",
+          "<!doctype html><html><head><title>SPA shell</title></head><body><div id=\"root\"></div><script src=\"/assets/app.js\"></script><script>window.__NEXT_DATA__={}</script><script>window.app={}</script><script>window.bundle={}</script><script>window.more={}</script></body></html>",
+        );
+        return;
       case "/sitemap.xml":
         response(
           res,
@@ -269,6 +279,10 @@ try {
     parseCompetitorUrl,
     parseManualPageUrl,
   } = require(path.join(outDir, "src/lib/urls.js"));
+  const { scrapePages } = require(path.join(
+    outDir,
+    "src/lib/crawler/scraper.js",
+  ));
   const {
     buildPageModel,
     extractMeaningfulText,
@@ -328,6 +342,19 @@ try {
     assert.throws(
       () => parseManualPageUrl("https://other.example/pricing", "https://example.com"),
       /competitor domain/,
+    );
+  });
+
+  check("rejects private hosts and non-public crawl paths", () => {
+    assert.throws(() => parseCompetitorUrl("localhost:3000"), /public website/i);
+    assert.throws(() => parseCompetitorUrl("127.0.0.1:3000"), /public website/i);
+    assert.throws(
+      () => parseCompetitorUrl("example.com/checkout"),
+      /public marketing|product|pricing|docs|update/i,
+    );
+    assert.throws(
+      () => parseManualPageUrl("/account", "https://example.com"),
+      /public pages/i,
     );
   });
 
@@ -452,6 +479,154 @@ try {
     assert.equal(stats.status, "unavailable");
   });
 
+  check("passes a 50-page deterministic SaaS fixture set", () => {
+    const pricingFixtures = [
+      ["Starter $9/mo", 9],
+      ["Pro $29 per user/month", 29],
+      ["Growth USD 49/month", 49],
+      ["Basic 12 USD per month", 12],
+      ["Launch \u20AC5/month", 5],
+      ["Plus 5\u20AC/month", 5],
+      ["Team EUR 25 per user/month", 25],
+      ["Agency \u00A319/mo", 19],
+      ["Scale GBP 79/month", 79],
+      ["From \u20AC10", 10],
+      ["Starting at $49", 49],
+      ["Business $99 billed annually", 99],
+      ["Annual plan $180/year", 180],
+      ["Creator $15/mo billed monthly", 15],
+      ["Premium $120 per year", 120],
+      ["Plan table\nStarter\n$19/mo\nBusiness\n$49/mo", 19],
+      ["Pricing card\nFree forever\nPro $20/month", 20],
+      ["Upgrade modal\nGet Plus - \u20AC5", 5],
+      ["Packages\nSolo $7/month\nTeam $14/month", 7],
+      ["Subscription\nEssential EUR 11 / month", 11],
+      ["Prix\nPro 15 EUR/mois", 15],
+      ["Tarifs\nStarter \u20AC8 par mois", 8],
+    ];
+    const contactSalesFixtures = [
+      "Enterprise pricing\nContact sales",
+      "Custom plans\nTalk to sales",
+      "Request pricing for your team",
+      "Contact us for annual procurement",
+      "Sales-led pricing\nBook a demo",
+    ];
+    const noPricingFixtures = [
+      "Trusted by 2,500 customers",
+      "99.9% uptime and 24/7 support",
+      "100 integrations and 2020 founding story",
+      "SOC2 compliant with 10,000 teams",
+      "Used in 42 countries by 500 agencies",
+      "API docs with 200 responses and 404 examples",
+      "Customer story: revenue grew 300%",
+      "Changelog May 1, 2026 fixed crawler retries",
+      "About page with offices in 3 countries",
+      "Support page with 24 hour response target",
+    ];
+    const positioningFixtures = [
+      "AI analytics workspace for finance teams\nTurn messy revenue data into board-ready insights.",
+      "Proposal automation for freelancers\nCreate client-ready proposals in your own voice.",
+      "Privacy-first web analytics\nSimple website metrics without cookies.",
+      "Incident management for engineering teams\nResolve outages faster with collaborative runbooks.",
+      "Email API for developers\nSend transactional email at scale.",
+    ];
+    const ctaFixtures = [
+      "Hero\nStart free\nBook a demo",
+      "Hero\nGet started\nView pricing",
+      "Hero\nStart trial\nContact sales",
+      "Hero\nSign up free\nRead docs",
+      "Hero\nDownload app\nLearn more",
+    ];
+    const featureFixtures = [
+      "Features\nAutomated monitoring\nPricing alerts\nEvidence-backed summaries",
+      "Features\nVoice matching\nProposal generation\nPersonalized output",
+      "Features\nCookieless analytics\nGoal tracking\nDashboard sharing",
+      "Features\nRunbooks\nEscalations\nStatus page updates",
+      "Features\nEmail API\nWebhooks\nTemplate editor",
+    ];
+    const changelogFixtures = [
+      "Release notes\nMay 1, 2026 - New dashboard shipped\nImproved pricing monitoring",
+      "Changelog\nv2.4.0 released\nFixed alert delivery",
+      "Updates\nApril 12, 2026 - API keys improved",
+    ];
+    const messyHtmlFixtures = [
+      extractMeaningfulText("<nav>Login Dashboard</nav><main><section><h1>Pricing</h1><table><tr><td>Starter</td><td>$19/mo</td></tr></table></section></main><footer>Privacy</footer>"),
+      extractMeaningfulText("<div class=\"modal\"><h2>Upgrade</h2><button>Get Plus - \u20AC5</button></div>"),
+    ];
+    const totalFixtures =
+      pricingFixtures.length +
+      contactSalesFixtures.length +
+      noPricingFixtures.length +
+      positioningFixtures.length +
+      ctaFixtures.length +
+      featureFixtures.length +
+      changelogFixtures.length +
+      messyHtmlFixtures.length;
+
+    assert.ok(totalFixtures >= 50, `expected at least 50 fixtures, got ${totalFixtures}`);
+
+    for (const [text, amount] of pricingFixtures) {
+      const pricing = analyzePricing(scrapedPage({ rawText: `Pricing\n${text}` }), "pricing");
+      assert.equal(pricing.status, "found", text);
+      assert.equal(pricing.lowestPrice.normalized_value.amount, amount, text);
+      fieldsHaveEvidence(pricing.facts);
+    }
+
+    for (const text of contactSalesFixtures) {
+      const pricing = analyzePricing(scrapedPage({ rawText: text }), "pricing");
+      assert.equal(pricing.status, "found", text);
+      assert.ok(pricing.contactSales, text);
+      assert.equal(pricing.paidPlans.length, 0, text);
+    }
+
+    for (const text of noPricingFixtures) {
+      const pricing = analyzePricing(scrapedPage({ rawText: text }), "homepage");
+      assert.equal(pricing.status, "unavailable", text);
+      assert.equal(pricing.paidPlans.length, 0, text);
+    }
+
+    for (const text of positioningFixtures) {
+      const page = analyzePageIntelligence({
+        pageType: "homepage",
+        scrape: scrapedPage({ rawText: text }),
+      });
+      assert.equal(page.positioning.status, "found", text);
+      fieldsHaveEvidence(page.positioning.facts);
+    }
+
+    for (const text of ctaFixtures) {
+      const page = analyzePageIntelligence({
+        pageType: "homepage",
+        scrape: scrapedPage({ rawText: text }),
+      });
+      assert.notEqual(page.ctas.status, "unavailable", text);
+      fieldsHaveEvidence(page.ctas.ctas);
+    }
+
+    for (const text of featureFixtures) {
+      const page = analyzePageIntelligence({
+        pageType: "features",
+        scrape: scrapedPage({ rawText: text }),
+      });
+      assert.ok(page.features.features.length >= 3, text);
+      fieldsHaveEvidence(page.features.features);
+    }
+
+    for (const text of changelogFixtures) {
+      const page = analyzePageIntelligence({
+        pageType: "changelog",
+        scrape: scrapedPage({ rawText: text }),
+      });
+      assert.equal(page.changelog.status, "found", text);
+      fieldsHaveEvidence(page.facts);
+    }
+
+    for (const text of messyHtmlFixtures) {
+      const pricing = analyzePricing(scrapedPage({ rawText: text }), "pricing");
+      assert.equal(pricing.status, "found", text);
+    }
+  });
+
   check("page model extracts hero pricing cta and ignores nav", () => {
     const modeled = buildPageModel(
       html({
@@ -506,6 +681,19 @@ try {
       assert.ok(byType.get("pricing")?.url.includes("/packages"), "packages pricing page not selected");
       assert.ok(byType.get("changelog")?.url.includes("/release-notes"), "release notes page not selected");
       assert.ok(!pages.some((page) => page.url.endsWith("/pricing")), "failed /pricing fallback was selected");
+    });
+  });
+
+  check("marks JavaScript-heavy shells as limited static analysis", async () => {
+    await withFixtureSite(async (baseUrl) => {
+      const [spa] = await scrapePages([`${baseUrl}/spa`]);
+
+      assert.equal(spa.javascriptHeavy, true);
+      assert.equal(spa.ok, false);
+      assert.match(
+        [...(spa.warnings ?? []), spa.error ?? ""].join(" "),
+        /JavaScript-heavy|Static analysis was limited/i,
+      );
     });
   });
 

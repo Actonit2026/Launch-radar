@@ -1,10 +1,11 @@
 import Link from "next/link";
 import {
+  createAnnualProCheckoutSessionAction,
   createBillingPortalSessionAction,
   createProCheckoutSessionAction,
 } from "@/app/pricing/actions";
 import { getCurrentUser } from "@/lib/auth";
-import { isStripeConfigured } from "@/lib/stripe";
+import { hasAnnualProPriceId, isStripeConfigured } from "@/lib/stripe";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
@@ -15,6 +16,7 @@ export default async function PricingPage() {
   const user = await getCurrentUser();
   const dashboardHref = user ? "/dashboard" : "/signup";
   const stripeReady = isStripeConfigured();
+  const annualReady = stripeReady && hasAnnualProPriceId();
   const supabase = user ? await createClient() : null;
   const { data: profile } = user && supabase
     ? await supabase
@@ -43,12 +45,12 @@ export default async function PricingPage() {
       <section className="grid gap-5 md:grid-cols-2">
         <article className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
           <h2 className="text-2xl font-semibold text-ink">Free</h2>
-          <p className="mt-3 text-4xl font-semibold text-ink">€0</p>
+          <p className="mt-3 text-4xl font-semibold text-ink">EUR 0</p>
           <p className="mt-2 text-sm text-ink/55">For the first baseline.</p>
           <ul className="mt-6 space-y-3 text-sm leading-6 text-ink/70">
             <li>Track up to 3 competitors</li>
             <li>Initial scan on add</li>
-            <li>Daily refresh target</li>
+            <li>Weekly scheduled refresh target</li>
             <li>Basic evidence-backed intelligence snapshot</li>
           </ul>
           <Link
@@ -66,8 +68,11 @@ export default async function PricingPage() {
               Live billing
             </span>
           </div>
-          <p className="mt-3 text-4xl font-semibold text-ink">€19</p>
+          <p className="mt-3 text-4xl font-semibold text-ink">EUR 19</p>
           <p className="mt-2 text-sm text-ink/55">per month</p>
+          <p className="mt-2 rounded-md bg-moss/10 px-3 py-2 text-sm font-semibold text-moss">
+            Annual: EUR 180/year, shown as EUR 15/month billed annually.
+          </p>
           <ul className="mt-6 space-y-3 text-sm leading-6 text-ink/70">
             <li>Track up to 20 competitors</li>
             <li>12-hour refresh target</li>
@@ -84,14 +89,31 @@ export default async function PricingPage() {
               </button>
             </form>
           ) : user && stripeReady ? (
-            <form action={createProCheckoutSessionAction}>
-              <button
-                type="submit"
-                className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
-              >
-                Upgrade to Pro
-              </button>
-            </form>
+            <div className="mt-6 grid gap-3">
+              <form action={createProCheckoutSessionAction}>
+                <button
+                  type="submit"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+                >
+                  Upgrade monthly
+                </button>
+              </form>
+              {annualReady ? (
+                <form action={createAnnualProCheckoutSessionAction}>
+                  <button
+                    type="submit"
+                    className="inline-flex h-11 w-full items-center justify-center rounded-md border border-moss bg-white px-5 text-sm font-semibold text-moss transition hover:bg-moss/5"
+                  >
+                    Upgrade annually
+                  </button>
+                </form>
+              ) : (
+                <p className="rounded-md bg-paper p-3 text-sm leading-6 text-ink/60">
+                  Annual checkout appears after STRIPE_PRO_ANNUAL_PRICE_ID is
+                  configured.
+                </p>
+              )}
+            </div>
           ) : user ? (
             <p className="mt-6 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
               Billing is not configured yet. Add Stripe environment variables to

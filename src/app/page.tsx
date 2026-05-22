@@ -39,11 +39,11 @@ export default async function Home() {
 
       <section className="grid gap-5 md:grid-cols-5">
         {[
-          "Paste competitor URLs",
-          "Analyze public pages",
-          "Build a baseline",
-          "Detect meaningful changes",
-          "Compare Your Product",
+          "Paste your product URL",
+          "Add competitors",
+          "Extract evidence-backed facts",
+          "Monitor meaningful changes",
+          "Recommend what to improve",
         ].map((step, index) => (
           <div key={step} className="rounded-lg border border-ink/10 bg-white p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
@@ -56,9 +56,11 @@ export default async function Home() {
         ))}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-5">
+      <section className="grid gap-4 md:grid-cols-3 lg:grid-cols-7">
         {[
+          "Deterministic analysis",
           "Evidence-backed insights",
+          "AI optional",
           "Source URLs",
           "Confidence levels",
           "Noise ignored",

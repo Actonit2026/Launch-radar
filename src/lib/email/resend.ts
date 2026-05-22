@@ -12,6 +12,13 @@ type ChangeAlertEmail = {
   createdAt: string;
 };
 
+type WeeklyDigestEmail = {
+  to: string;
+  dashboardUrl: string;
+  changeCount: number;
+  summaries: string[];
+};
+
 type EmailResult =
   | {
       sent: true;
@@ -95,6 +102,39 @@ function renderChangeAlertEmail(alert: ChangeAlertEmail) {
   };
 }
 
+function renderWeeklyDigestEmail(digest: WeeklyDigestEmail) {
+  const escapedDashboardUrl = escapeHtml(digest.dashboardUrl);
+  const summaries = digest.summaries.length
+    ? digest.summaries
+    : ["No meaningful competitor changes detected this week."];
+  const listItems = summaries
+    .slice(0, 8)
+    .map((summary) => `<li>${escapeHtml(summary)}</li>`)
+    .join("");
+
+  return {
+    subject:
+      digest.changeCount > 0
+        ? `[LaunchRadar] ${digest.changeCount} meaningful changes this week`
+        : "[LaunchRadar] No meaningful changes this week",
+    text: [
+      "LaunchRadar weekly digest",
+      "",
+      ...summaries.map((summary) => `- ${summary}`),
+      "",
+      `Open dashboard: ${digest.dashboardUrl}`,
+    ].join("\n"),
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #17212b; line-height: 1.55;">
+        <p style="margin: 0 0 12px; color: #286f5d; font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;">LaunchRadar weekly digest</p>
+        <h1 style="margin: 0 0 16px; font-size: 24px; line-height: 1.2;">${digest.changeCount > 0 ? "Meaningful competitor changes" : "No meaningful changes detected"}</h1>
+        <ul style="margin: 0 0 20px; padding-left: 20px;">${listItems}</ul>
+        <p><a href="${escapedDashboardUrl}" style="color: #286f5d; font-weight: 700;">Open dashboard</a></p>
+      </div>
+    `,
+  };
+}
+
 export function isEmailConfigured() {
   return Boolean(getEmailConfig());
 }
@@ -113,6 +153,32 @@ export async function sendChangeAlertEmail(
   const { data, error } = await resend.emails.send({
     from: config.fromEmail,
     to: [alert.to],
+    subject: email.subject,
+    html: email.html,
+    text: email.text,
+  });
+
+  if (error) {
+    return { sent: false, error: error.message };
+  }
+
+  return { sent: true, id: data?.id ?? null };
+}
+
+export async function sendWeeklyDigestEmail(
+  digest: WeeklyDigestEmail,
+): Promise<EmailResult> {
+  const config = getEmailConfig();
+
+  if (!config) {
+    return { sent: false, skipped: true };
+  }
+
+  const resend = new Resend(config.apiKey);
+  const email = renderWeeklyDigestEmail(digest);
+  const { data, error } = await resend.emails.send({
+    from: config.fromEmail,
+    to: [digest.to],
     subject: email.subject,
     html: email.html,
     text: email.text,

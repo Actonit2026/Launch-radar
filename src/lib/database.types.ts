@@ -48,6 +48,62 @@ export type Database = {
         };
         Relationships: [];
       };
+      scan_jobs: {
+        Row: {
+          id: string;
+          user_id: string;
+          job_type: "manual_scan" | "scheduled_scan";
+          status: "queued" | "running" | "completed" | "failed" | "deferred";
+          priority: number;
+          dedupe_key: string;
+          attempts: number;
+          last_error: string | null;
+          available_at: string;
+          started_at: string | null;
+          completed_at: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          job_type?: "manual_scan" | "scheduled_scan";
+          status?: "queued" | "running" | "completed" | "failed" | "deferred";
+          priority?: number;
+          dedupe_key: string;
+          attempts?: number;
+          last_error?: string | null;
+          available_at?: string;
+          started_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          job_type?: "manual_scan" | "scheduled_scan";
+          status?: "queued" | "running" | "completed" | "failed" | "deferred";
+          priority?: number;
+          dedupe_key?: string;
+          attempts?: number;
+          last_error?: string | null;
+          available_at?: string;
+          started_at?: string | null;
+          completed_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "scan_jobs_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       competitors: {
         Row: {
           id: string;
@@ -457,21 +513,45 @@ export type Database = {
           id: string;
           recommendation_id: string;
           user_id: string;
-          feedback: "useful" | "not_useful" | "already_knew" | "implemented";
+          feedback:
+            | "useful"
+            | "not_useful"
+            | "already_knew"
+            | "implemented"
+            | "saved"
+            | "rejected"
+            | "hidden"
+            | "resolved";
           created_at: string;
         };
         Insert: {
           id?: string;
           recommendation_id: string;
           user_id: string;
-          feedback: "useful" | "not_useful" | "already_knew" | "implemented";
+          feedback:
+            | "useful"
+            | "not_useful"
+            | "already_knew"
+            | "implemented"
+            | "saved"
+            | "rejected"
+            | "hidden"
+            | "resolved";
           created_at?: string;
         };
         Update: {
           id?: string;
           recommendation_id?: string;
           user_id?: string;
-          feedback?: "useful" | "not_useful" | "already_knew" | "implemented";
+          feedback?:
+            | "useful"
+            | "not_useful"
+            | "already_knew"
+            | "implemented"
+            | "saved"
+            | "rejected"
+            | "hidden"
+            | "resolved";
           created_at?: string;
         };
         Relationships: [
@@ -594,6 +674,8 @@ export type CompetitorIntelligenceSnapshot =
   Database["public"]["Tables"]["competitor_intelligence_snapshots"]["Row"];
 export type ScanDebugLog =
   Database["public"]["Tables"]["scan_debug_logs"]["Row"];
+export type ScanJob =
+  Database["public"]["Tables"]["scan_jobs"]["Row"];
 export type UserProduct =
   Database["public"]["Tables"]["user_products"]["Row"];
 export type ProductSnapshot =

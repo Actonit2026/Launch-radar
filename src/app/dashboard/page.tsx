@@ -110,8 +110,9 @@ export default async function DashboardPage() {
                 {data.plan.competitorLimit} competitors tracked
               </p>
               <p className="mt-2 text-sm leading-6 text-ink/60">
-                Upgrade to Pro for 20 competitors, 12-hour refreshes, email
-                alerts, and Your Product recommendations.
+                Free refresh target is weekly. Upgrade to Pro for 20
+                competitors, 12-hour refreshes, email alerts, and Your Product
+                recommendations.
               </p>
             </div>
             <Link
@@ -264,8 +265,8 @@ export default async function DashboardPage() {
             </div>
           ) : (
             <p className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-              No meaningful changes detected. Minor formatting or technical
-              changes are ignored.
+              No meaningful changes detected this week. Minor formatting and
+              technical changes are ignored.
             </p>
           )}
         </div>

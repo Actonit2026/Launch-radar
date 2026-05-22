@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 type ScanResult = {
+  queued?: boolean;
+  message?: string;
   checked: number;
   snapshotsCreated: number;
   changed: number;
@@ -22,7 +24,7 @@ async function readScanPayload(response: Response) {
     return {
       error: response.ok
         ? undefined
-        : `Scan failed with status ${response.status}.`,
+        : "Scan failed.",
     };
   }
 
@@ -32,7 +34,7 @@ async function readScanPayload(response: Response) {
     return {
       error: response.ok
         ? "Scan returned an unreadable response."
-        : text.slice(0, 240),
+        : "Scan failed.",
     };
   }
 }
@@ -56,12 +58,16 @@ export function RunScanButton() {
         throw new Error(payload.error ?? "Scan failed.");
       }
 
+      if (payload.queued) {
+        setMessage(payload.message ?? "Scan queued. It will run shortly.");
+        router.refresh();
+        return;
+      }
+
       setMessage(
         `Checked ${payload.checked ?? 0}, saved ${
           payload.snapshotsCreated ?? 0
-        } snapshots, generated ${
-          payload.aiSummariesCreated ?? 0
-        } AI summaries, sent ${payload.notificationsSent ?? 0} alerts, deferred ${
+        } snapshots, sent ${payload.notificationsSent ?? 0} alerts, deferred ${
           payload.deferred ?? 0
         } pages due to scan cadence.`,
       );

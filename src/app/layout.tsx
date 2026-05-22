@@ -77,6 +77,22 @@ export default async function RootLayout({
           </nav>
         </header>
         {children}
+        <footer className="border-t border-ink/10 bg-paper/80">
+          <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-6 py-6 text-sm text-ink/55 sm:flex-row sm:items-center sm:justify-between">
+            <p>LaunchRadar analyzes public pages only.</p>
+            <div className="flex flex-wrap gap-4">
+              <Link href="/bot" className="font-semibold hover:text-ink">
+                Bot
+              </Link>
+              <Link href="/privacy" className="font-semibold hover:text-ink">
+                Privacy
+              </Link>
+              <Link href="/terms" className="font-semibold hover:text-ink">
+                Terms
+              </Link>
+            </div>
+          </div>
+        </footer>
       </body>
     </html>
   );

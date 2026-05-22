@@ -112,9 +112,10 @@ function EvidenceList({
 function FeedbackForm({ recommendationId }: { recommendationId: string }) {
   const options = [
     ["useful", "Useful"],
-    ["already_knew", "Already knew"],
-    ["implemented", "Implemented"],
     ["not_useful", "Not useful"],
+    ["already_knew", "Already knew this"],
+    ["implemented", "Implemented"],
+    ["resolved", "Mark as resolved"],
   ] as const;
 
   return (
@@ -159,8 +160,8 @@ export function ProductRecommendationsPanel({
       <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
         <h2 className="text-xl font-semibold text-ink">Recommendations</h2>
         <p className="mt-3 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-          No strong recommendations yet. Add more competitors or wait for more
-          changes.
+          No strong recommendations available yet. Add more competitors or wait
+          for more changes.
         </p>
       </div>
     );

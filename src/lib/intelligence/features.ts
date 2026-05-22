@@ -11,7 +11,7 @@ import {
 } from "@/lib/intelligence/text";
 
 const featureSignalPattern =
-  /\b(?:feature|integration|workflow|automation|automated|dashboard|dashboards|analytics|report|api|security|sso|export|import|collaboration|templates|alerts|search|sync|permissions|roles|tracking|monitoring|proposal|proposals|generator|generation|voice|personalization|personalized|writing sample|matching)\b/i;
+  /\b(?:feature|integration|workflow|automation|automated|dashboard|dashboards|analytics|report|summary|summaries|api|security|sso|export|import|collaboration|template|templates|webhook|webhooks|alerts|search|sync|permissions|roles|tracking|monitoring|proposal|proposals|generator|generation|voice|personalization|personalized|writing sample|matching|runbook|runbooks|escalation|escalations|status page|editor)\b/i;
 const rejectedFeaturePattern =
   /\b(?:pricing|price|free|contact sales|book a demo|sign up|get started|privacy|terms|cookie|copyright)\b/i;
 
@@ -23,7 +23,8 @@ function featureNameFromLine(line: string) {
   if (
     cleaned.length < 4 ||
     cleaned.length > 90 ||
-    rejectedFeaturePattern.test(cleaned)
+    (rejectedFeaturePattern.test(cleaned) &&
+      !featureSignalPattern.test(cleaned))
   ) {
     return null;
   }

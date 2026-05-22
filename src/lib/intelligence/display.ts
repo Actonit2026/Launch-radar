@@ -306,7 +306,10 @@ function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSection
     };
   }
 
-  return { status: "unavailable", text: "No public pricing detected." };
+  return {
+    status: "unavailable",
+    text: "No public pricing block detected on this URL.",
+  };
 }
 
 function positioningSection(
@@ -397,7 +400,7 @@ function displayWarnings({
   return Array.from(new Set(warnings)).filter((warning) => {
     if (
       pricing.status === "found" &&
-      /no (?:reliable )?public pricing detected/i.test(warning)
+      /no (?:reliable )?public pricing(?: block)? detected/i.test(warning)
     ) {
       return false;
     }

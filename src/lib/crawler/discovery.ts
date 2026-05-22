@@ -1,7 +1,8 @@
 import * as cheerio from "cheerio";
+import { crawlerUserAgent } from "@/lib/crawler/robots";
 import type { PageType } from "@/lib/database.types";
 import { scrapePages, type ScrapedPage } from "@/lib/crawler/scraper";
-import { createDefaultMonitoredPages } from "@/lib/urls";
+import { createDefaultMonitoredPages, isBlockedCrawlPath } from "@/lib/urls";
 
 type CandidatePageType = PageType | "product" | "docs" | "unknown";
 type CandidateSource =
@@ -39,7 +40,6 @@ export type DiscoveredPage = {
   scrape: ScrapedPage;
 };
 
-const maxInitialCandidatePages = 15;
 const sitemapTimeoutMs = 8000;
 
 const fallbackPaths = [
@@ -122,10 +122,16 @@ function isExcludedCandidate(url: string) {
   try {
     const parsed = new URL(url);
 
-    return excludedPathPattern.test(parsed.pathname);
+    return excludedPathPattern.test(parsed.pathname) || isBlockedCrawlPath(url);
   } catch {
     return true;
   }
+}
+
+function maxInitialCandidatePages() {
+  const value = Number(process.env.MAX_PAGES_PER_SCAN);
+
+  return Number.isFinite(value) && value > 0 ? Math.min(value, 30) : 15;
 }
 
 function addCandidate(
@@ -303,8 +309,7 @@ async function fetchText(url: string) {
       signal: controller.signal,
       headers: {
         accept: "application/xml,text/xml,text/plain",
-        "user-agent":
-          "Mozilla/5.0 (compatible; LaunchRadar/0.1; +https://launchradar.local)",
+        "user-agent": crawlerUserAgent(),
       },
     });
 
@@ -388,7 +393,7 @@ function selectCandidatesToScrape(candidates: PageCandidate[]) {
   const selected = unique([
     ...required.map((candidate) => candidate.url),
     ...ranked.map((candidate) => candidate.url),
-  ]).slice(0, maxInitialCandidatePages);
+  ]).slice(0, maxInitialCandidatePages());
 
   return selected
     .map((url) => candidates.find((candidate) => candidate.url === url))
