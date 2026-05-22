@@ -12,6 +12,7 @@ type ScanResult = {
   notificationsSent: number;
   notificationsSkipped: number;
   failed: number;
+  deferred: number;
 };
 
 async function readScanPayload(response: Response) {
@@ -60,7 +61,9 @@ export function RunScanButton() {
           payload.snapshotsCreated ?? 0
         } snapshots, generated ${
           payload.aiSummariesCreated ?? 0
-        } AI summaries, sent ${payload.notificationsSent ?? 0} alerts.`,
+        } AI summaries, sent ${payload.notificationsSent ?? 0} alerts, deferred ${
+          payload.deferred ?? 0
+        } pages due to scan cadence.`,
       );
       router.refresh();
     } catch (error) {

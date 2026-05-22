@@ -5,6 +5,7 @@ import {
   isSupabaseConfigured,
   supabaseConfigMessage,
 } from "@/lib/supabase/config";
+import { canRunManualScan } from "@/lib/usage";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,6 +23,21 @@ async function runScan(request: Request) {
 
     if (!context) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const guard = await canRunManualScan({
+      supabase: context.supabase,
+      userId: context.user.id,
+    });
+
+    if (!guard.allowed) {
+      return NextResponse.json(
+        {
+          error: guard.reason ?? "Scan deferred due to usage limits.",
+          deferred: true,
+        },
+        { status: 429 },
+      );
     }
 
     const result = await scanMonitoredPagesForUser(

@@ -1,13 +1,21 @@
+import { createHash } from "crypto";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createOpenAIClient,
   getOpenAIConfig,
   OPENAI_NOT_CONFIGURED_ERROR,
 } from "@/lib/ai/config";
+import type { Database, Json } from "@/lib/database.types";
 import type {
   Confidence,
   PageIntelligence,
   StructuredFact,
 } from "@/lib/intelligence/types";
+import {
+  canRunAiSummary,
+  estimateAiCostEur,
+  recordUsageEvent,
+} from "@/lib/usage";
 
 export type IntelligenceSummary = {
   executive_summary: string | null;
@@ -28,6 +36,8 @@ export type IntelligenceSummaryResult = IntelligenceSummary & {
 type SummarizeIntelligenceInput = {
   competitorName: string;
   pages: PageIntelligence[];
+  supabase?: SupabaseClient<Database>;
+  userId?: string;
 };
 
 const intelligenceSummarySchema = {
@@ -109,6 +119,28 @@ function compactPages(pages: PageIntelligence[]) {
     facts: page.facts.slice(0, 40).map(compactFact),
     warnings: page.warnings,
   }));
+}
+
+function cacheKeyForInput({
+  model,
+  pages,
+}: {
+  model: string;
+  pages: PageIntelligence[];
+}) {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        model,
+        pages: compactPages(pages).map((page) => ({
+          source_url: page.source_url,
+          page_type: page.page_type,
+          content_hash: page.content_hash,
+          facts: page.facts,
+        })),
+      }),
+    )
+    .digest("hex");
 }
 
 function factsByField(pages: PageIntelligence[], field: string) {
@@ -252,6 +284,41 @@ function parseSummary(
   };
 }
 
+function parseSummaryRecord(
+  value: Json,
+): IntelligenceSummaryResult | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const summary = value as Record<string, unknown>;
+  const overallConfidence = summary.overall_confidence;
+
+  if (!isConfidence(overallConfidence)) {
+    return null;
+  }
+
+  return {
+    executive_summary: stringOrNull(summary.executive_summary),
+    pricing_summary: stringOrNull(summary.pricing_summary),
+    positioning_summary: stringOrNull(summary.positioning_summary),
+    feature_summary: stringOrNull(summary.feature_summary),
+    cta_summary: stringOrNull(summary.cta_summary),
+    unknowns: stringArray(summary.unknowns),
+    warnings: stringArray(summary.warnings),
+    overall_confidence: overallConfidence,
+    source: "openai",
+  };
+}
+
+function toJson(value: unknown): Json {
+  return JSON.parse(JSON.stringify(value)) as Json;
+}
+
+function estimateTokens(value: string) {
+  return Math.ceil(value.length / 4);
+}
+
 export async function summarizeIntelligence(
   input: SummarizeIntelligenceInput,
 ): Promise<IntelligenceSummaryResult> {
@@ -270,6 +337,45 @@ export async function summarizeIntelligence(
     return fallback;
   }
 
+  const aiInput = JSON.stringify({
+    competitor_name: input.competitorName,
+    analyzed_pages: compactPages(input.pages),
+  });
+  const estimatedInputTokens = estimateTokens(aiInput);
+  const cacheKey = cacheKeyForInput({
+    model: config.model,
+    pages: input.pages,
+  });
+
+  if (input.supabase && input.userId) {
+    const { data: cached } = await input.supabase
+      .from("ai_summary_cache")
+      .select("summary_json")
+      .eq("user_id", input.userId)
+      .eq("cache_key", cacheKey)
+      .maybeSingle();
+    const cachedSummary = cached
+      ? parseSummaryRecord(cached.summary_json)
+      : null;
+
+    if (cachedSummary) {
+      return cachedSummary;
+    }
+
+    const budget = await canRunAiSummary({
+      supabase: input.supabase,
+      estimatedTokens: estimatedInputTokens,
+    });
+
+    if (!budget.allowed) {
+      return {
+        ...fallback,
+        error: budget.reason,
+        warnings: [...fallback.warnings, budget.reason ?? "AI summary skipped."],
+      };
+    }
+  }
+
   try {
     const client = createOpenAIClient(config.apiKey);
     const response = await client.responses.create({
@@ -280,10 +386,7 @@ export async function summarizeIntelligence(
         "If facts are missing, say unknown. Avoid generic summaries.",
         "Every summary sentence must be supported by provided evidence.",
       ].join(" "),
-      input: JSON.stringify({
-        competitor_name: input.competitorName,
-        analyzed_pages: compactPages(input.pages),
-      }),
+      input: aiInput,
       text: {
         format: {
           type: "json_schema",
@@ -293,8 +396,37 @@ export async function summarizeIntelligence(
         },
       },
     });
+    const parsed = parseSummary(response.output_text, fallback);
+    const outputTokens = estimateTokens(response.output_text);
+    const totalTokens = estimatedInputTokens + outputTokens;
 
-    return parseSummary(response.output_text, fallback);
+    if (input.supabase && input.userId) {
+      await input.supabase.from("ai_summary_cache").upsert(
+        {
+          user_id: input.userId,
+          cache_key: cacheKey,
+          model: config.model,
+          summary_json: toJson(parsed),
+          source: parsed.source,
+        },
+        { onConflict: "user_id,cache_key" },
+      );
+      await recordUsageEvent({
+        supabase: input.supabase,
+        userId: input.userId,
+        eventType: "ai_summary",
+        quantity: totalTokens,
+        estimatedCostEur: estimateAiCostEur(totalTokens),
+        metadata: {
+          model: config.model,
+          input_tokens_estimate: estimatedInputTokens,
+          output_tokens_estimate: outputTokens,
+          cache_key: cacheKey,
+        },
+      });
+    }
+
+    return parsed;
   } catch (error) {
     return {
       ...fallback,

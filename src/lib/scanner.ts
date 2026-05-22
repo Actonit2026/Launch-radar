@@ -39,6 +39,7 @@ import {
   sendChangeNotification,
   type ChangeNotificationContext,
 } from "@/lib/notifications";
+import { estimateScanCostEur, recordUsageEvent } from "@/lib/usage";
 import { createDefaultMonitoredPages } from "@/lib/urls";
 
 type Supabase = SupabaseClient<Database>;
@@ -54,6 +55,7 @@ type ScanResult = {
   notificationsSent: number;
   notificationsSkipped: number;
   failed: number;
+  deferred: number;
   failures: Array<{
     url: string;
     error: string;
@@ -354,7 +356,11 @@ export async function createInitialMonitoringSetup(
   supabase: Supabase,
   competitorId: string,
   baseUrl: string,
-  options?: { competitorName?: string; submittedPageUrl?: string },
+  options?: {
+    competitorName?: string;
+    submittedPageUrl?: string;
+    userId?: string;
+  },
 ): Promise<
   ScannerResult<{
     pagesCreated: number;
@@ -461,6 +467,8 @@ export async function createInitialMonitoringSetup(
   const intelligenceSummary = await summarizeIntelligence({
     competitorName: options?.competitorName ?? "Tracked competitor",
     pages: intelligencePages,
+    supabase,
+    userId: options?.userId,
   });
   const intelligenceError = await saveCompetitorIntelligenceSnapshot({
     supabase,
@@ -526,6 +534,21 @@ export async function createInitialMonitoringSetup(
         : [],
   });
 
+  if (options?.userId) {
+    await recordUsageEvent({
+      supabase,
+      userId: options.userId,
+      eventType: "competitor_initial_scan",
+      quantity: intelligencePages.length,
+      estimatedCostEur: estimateScanCostEur(intelligencePages.length),
+      metadata: {
+        competitor_id: competitorId,
+        pages_analyzed: intelligencePages.length,
+        snapshots_created: snapshotsCreated,
+      },
+    });
+  }
+
   return {
     data: {
       pagesCreated: monitoredPages?.length ?? 0,
@@ -541,10 +564,12 @@ export async function rerunCompetitorIntelligence(
   {
     competitorId,
     competitorName,
+    userId,
     baselinePageIds = [],
   }: {
     competitorId: string;
     competitorName: string;
+    userId?: string;
     baselinePageIds?: string[];
   },
 ): Promise<
@@ -704,6 +729,8 @@ export async function rerunCompetitorIntelligence(
   const intelligenceSummary = await summarizeIntelligence({
     competitorName,
     pages: intelligencePages,
+    supabase,
+    userId,
   });
   const intelligenceError = await saveCompetitorIntelligenceSnapshot({
     supabase,
@@ -782,6 +809,21 @@ export async function rerunCompetitorIntelligence(
     ],
   });
 
+  if (userId) {
+    await recordUsageEvent({
+      supabase,
+      userId,
+      eventType: "manual_analysis",
+      quantity: intelligencePages.length,
+      estimatedCostEur: estimateScanCostEur(intelligencePages.length),
+      metadata: {
+        competitor_id: competitorId,
+        pages_analyzed: intelligencePages.length,
+        baseline_snapshots_created: baselineSnapshotsCreated,
+      },
+    });
+  }
+
   return {
     data: {
       pagesAnalyzed: intelligencePages.length,
@@ -821,6 +863,7 @@ export async function scanMonitoredPagesForUser(
         notificationsSent: 0,
         notificationsSkipped: 0,
         failed: 0,
+        deferred: 0,
         failures: [],
         notificationFailures: [],
       },
@@ -829,7 +872,7 @@ export async function scanMonitoredPagesForUser(
 
   const { data: profile, error: profileError } = await supabase
     .from("users")
-    .select("email")
+    .select("email, scan_interval_hours")
     .eq("id", userId)
     .maybeSingle();
 
@@ -846,7 +889,15 @@ export async function scanMonitoredPagesForUser(
     return { data: null, error: formatDatabaseError(pagesError.message) };
   }
 
-  const pages = monitoredPages ?? [];
+  const allPages = monitoredPages ?? [];
+  const minimumCheckedAt = Date.now() - (profile?.scan_interval_hours ?? 24) * 60 * 60 * 1000;
+  const pages = allPages.filter((page) => {
+    if (!page.last_checked_at) {
+      return true;
+    }
+
+    return new Date(page.last_checked_at).getTime() <= minimumCheckedAt;
+  });
   const competitorById = new Map(
     (competitors ?? []).map((competitor) => [
       competitor.id,
@@ -871,6 +922,7 @@ export async function scanMonitoredPagesForUser(
     notificationsSent: 0,
     notificationsSkipped: 0,
     failed: 0,
+    deferred: allPages.length - pages.length,
     failures: [],
     notificationFailures: [],
   };
@@ -1081,6 +1133,20 @@ export async function scanMonitoredPagesForUser(
       errors,
     });
   }
+
+  await recordUsageEvent({
+    supabase,
+    userId,
+    eventType: "manual_scan",
+    quantity: result.checked + result.failed,
+    estimatedCostEur: estimateScanCostEur(result.checked + result.failed),
+    metadata: {
+      checked: result.checked,
+      failed: result.failed,
+      deferred: result.deferred,
+      changes_created: result.changesCreated,
+    },
+  });
 
   return { data: result };
 }

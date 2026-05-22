@@ -8,6 +8,7 @@ import {
   isSupabaseConfigured,
   supabaseConfigMessage,
 } from "@/lib/supabase/config";
+import { canRunProductScan } from "@/lib/usage";
 import { analyzeUserProduct } from "@/lib/user-products";
 import { parseCompetitorUrl } from "@/lib/urls";
 
@@ -112,6 +113,17 @@ export async function saveUserProductAction(
     return { error: existingError.message };
   }
 
+  if (existingProduct) {
+    const guard = await canRunProductScan({
+      supabase,
+      userId: user.id,
+    });
+
+    if (!guard.allowed) {
+      return { error: guard.reason ?? "Product analysis limit reached." };
+    }
+  }
+
   const mutation = existingProduct
     ? supabase
         .from("user_products")
@@ -192,6 +204,15 @@ export async function rerunUserProductAction(
 
   if (error || !product) {
     return { error: error ?? "Product not found." };
+  }
+
+  const guard = await canRunProductScan({
+    supabase,
+    userId: user.id,
+  });
+
+  if (!guard.allowed) {
+    return { error: guard.reason ?? "Product analysis limit reached." };
   }
 
   const analysis = await analyzeUserProduct({

@@ -8,6 +8,7 @@ import {
   buildProductRecommendations,
   parseStructuredFacts,
 } from "@/lib/product-recommendations";
+import { estimateScanCostEur, recordUsageEvent } from "@/lib/usage";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -160,6 +161,8 @@ export async function analyzeUserProduct({
     const summary = await summarizeIntelligence({
       competitorName: productName,
       pages: intelligencePages,
+      supabase,
+      userId,
     });
     const facts = intelligencePages.flatMap((page) => page.facts);
     const warnings = unique([
@@ -231,6 +234,18 @@ export async function analyzeUserProduct({
       supabase,
       productId,
       status: "ready",
+    });
+    await recordUsageEvent({
+      supabase,
+      userId,
+      eventType: "product_scan",
+      quantity: intelligencePages.length,
+      estimatedCostEur: estimateScanCostEur(intelligencePages.length),
+      metadata: {
+        product_id: productId,
+        pages_analyzed: intelligencePages.length,
+        recommendations_created: recommendations.length,
+      },
     });
 
     return {

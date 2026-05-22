@@ -19,6 +19,7 @@ import {
   isSupabaseConfigured,
   supabaseConfigMessage,
 } from "@/lib/supabase/config";
+import { canRunManualAnalysis } from "@/lib/usage";
 
 export type CompetitorFormState = {
   error?: string;
@@ -182,6 +183,7 @@ export async function createCompetitorAction(
     {
       competitorName: parsed.name,
       submittedPageUrl: parsed.submittedPageUrl,
+      userId: user.id,
     },
   );
 
@@ -303,9 +305,26 @@ export async function addManualPageAction(
     return { error: pageError.message };
   }
 
+  const guard = await canRunManualAnalysis({
+    supabase,
+    userId: user.id,
+  });
+
+  if (!guard.allowed) {
+    revalidatePath("/dashboard");
+    revalidatePath(`/dashboard/competitors/${competitor.id}`);
+
+    return {
+      message: `Page saved. Re-analysis deferred: ${
+        guard.reason ?? "usage limit reached"
+      }`,
+    };
+  }
+
   const analysis = await rerunCompetitorIntelligence(supabase, {
     competitorId: competitor.id,
     competitorName: competitor.name,
+    userId: user.id,
     baselinePageIds: monitoredPage ? [monitoredPage.id] : [],
   });
 
@@ -355,9 +374,19 @@ export async function rerunCompetitorIntelligenceAction(
     return { error: competitorError ?? "Competitor not found." };
   }
 
+  const guard = await canRunManualAnalysis({
+    supabase,
+    userId: user.id,
+  });
+
+  if (!guard.allowed) {
+    return { error: guard.reason ?? "Re-analysis limit reached." };
+  }
+
   const analysis = await rerunCompetitorIntelligence(supabase, {
     competitorId: competitor.id,
     competitorName: competitor.name,
+    userId: user.id,
   });
 
   revalidatePath("/dashboard");

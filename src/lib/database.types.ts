@@ -488,6 +488,82 @@ export type Database = {
           },
         ];
       };
+      usage_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          event_type: string;
+          quantity: number;
+          estimated_cost_eur: number;
+          metadata_json: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          event_type: string;
+          quantity?: number;
+          estimated_cost_eur?: number;
+          metadata_json?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          event_type?: string;
+          quantity?: number;
+          estimated_cost_eur?: number;
+          metadata_json?: Json;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "usage_events_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      ai_summary_cache: {
+        Row: {
+          id: string;
+          user_id: string;
+          cache_key: string;
+          model: string;
+          summary_json: Json;
+          source: "openai" | "deterministic";
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          cache_key: string;
+          model: string;
+          summary_json: Json;
+          source?: "openai" | "deterministic";
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          cache_key?: string;
+          model?: string;
+          summary_json?: Json;
+          source?: "openai" | "deterministic";
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_summary_cache_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -521,4 +597,6 @@ export type ProductSnapshot =
   Database["public"]["Tables"]["product_snapshots"]["Row"];
 export type ProductRecommendation =
   Database["public"]["Tables"]["product_recommendations"]["Row"];
+export type UsageEvent =
+  Database["public"]["Tables"]["usage_events"]["Row"];
 export type PageType = Database["public"]["Enums"]["page_type"];

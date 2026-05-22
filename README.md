@@ -82,3 +82,24 @@ Run `supabase/migrations/0004_intelligence_snapshots.sql` to persist intelligenc
 1. Copy `.env.example` to `.env.local`.
 2. Add your Supabase project URL and anon key.
 3. Run `npm run dev`.
+
+## Production Environment
+
+Required:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `NEXT_PUBLIC_SITE_URL` or `NEXT_PUBLIC_APP_URL`
+- `OPENAI_API_KEY`
+- `OPENAI_SUMMARY_MODEL`
+- `RESEND_API_KEY`
+- `RESEND_FROM_EMAIL`
+
+Cost guard defaults:
+
+- `MONTHLY_COST_BUDGET_EUR=20`
+- `AI_MONTHLY_TOKEN_LIMIT=400000`
+- `MAX_SCANS_PER_DAY_GLOBAL=80`
+- `MAX_AI_CALLS_PER_DAY_GLOBAL=50`
+- `MAX_PAGES_PER_SCAN=15`
+- `AI_ESTIMATED_EUR_PER_1K_TOKENS=0.0002`
