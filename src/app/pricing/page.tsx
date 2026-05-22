@@ -1,5 +1,11 @@
 import Link from "next/link";
+import {
+  createBillingPortalSessionAction,
+  createProCheckoutSessionAction,
+} from "@/app/pricing/actions";
 import { getCurrentUser } from "@/lib/auth";
+import { isStripeConfigured } from "@/lib/stripe";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
   title: "Pricing | LaunchRadar",
@@ -8,6 +14,16 @@ export const metadata = {
 export default async function PricingPage() {
   const user = await getCurrentUser();
   const dashboardHref = user ? "/dashboard" : "/signup";
+  const stripeReady = isStripeConfigured();
+  const supabase = user ? await createClient() : null;
+  const { data: profile } = user && supabase
+    ? await supabase
+        .from("users")
+        .select("plan, billing_customer_id")
+        .eq("id", user.id)
+        .maybeSingle()
+    : { data: null };
+  const isPro = profile?.plan === "pro";
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-5xl flex-col gap-8 px-6 py-12">
@@ -47,7 +63,7 @@ export default async function PricingPage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-2xl font-semibold text-ink">Pro</h2>
             <span className="rounded-full bg-moss/10 px-3 py-1 text-xs font-semibold text-moss">
-              Planned
+              Live billing
             </span>
           </div>
           <p className="mt-3 text-4xl font-semibold text-ink">€19</p>
@@ -58,16 +74,37 @@ export default async function PricingPage() {
             <li>Email alerts for meaningful changes</li>
             <li>Your Product comparison recommendations</li>
           </ul>
-          <Link
-            href="/dashboard/settings"
-            className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md border border-moss bg-white px-5 text-sm font-semibold text-moss transition hover:bg-moss/5"
-          >
-            Check account status
-          </Link>
-          <p className="mt-4 text-xs leading-5 text-ink/50">
-            Stripe checkout will be connected before any account can become Pro.
-            The app will not mark subscriptions active without billing data.
-          </p>
+          {isPro && profile?.billing_customer_id ? (
+            <form action={createBillingPortalSessionAction}>
+              <button
+                type="submit"
+                className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md border border-moss bg-white px-5 text-sm font-semibold text-moss transition hover:bg-moss/5"
+              >
+                Manage billing
+              </button>
+            </form>
+          ) : user && stripeReady ? (
+            <form action={createProCheckoutSessionAction}>
+              <button
+                type="submit"
+                className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+              >
+                Upgrade to Pro
+              </button>
+            </form>
+          ) : user ? (
+            <p className="mt-6 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
+              Billing is not configured yet. Add Stripe environment variables to
+              enable Pro checkout.
+            </p>
+          ) : (
+            <Link
+              href="/signup"
+              className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+            >
+              Sign up to upgrade
+            </Link>
+          )}
         </article>
       </section>
     </main>

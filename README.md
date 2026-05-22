@@ -89,11 +89,20 @@ Required:
 
 - `NEXT_PUBLIC_SUPABASE_URL`
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
 - `NEXT_PUBLIC_SITE_URL` or `NEXT_PUBLIC_APP_URL`
 - `OPENAI_API_KEY`
 - `OPENAI_SUMMARY_MODEL`
 - `RESEND_API_KEY`
 - `RESEND_FROM_EMAIL`
+- `STRIPE_SECRET_KEY`
+- `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_PRO_PRICE_ID`
+
+Stripe webhook endpoint:
+
+- `/api/stripe/webhook`
+- listen for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, and `customer.subscription.deleted`
 
 Cost guard defaults:
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { signOutAction } from "@/app/auth/actions";
+import { createBillingPortalSessionAction } from "@/app/pricing/actions";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
 import { getDashboardData } from "@/lib/competitors";
@@ -110,10 +111,13 @@ export default async function SettingsPage() {
           >
             View upgrade options
           </Link>
-          <p className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-            Pro billing is not enabled yet. Phase 4 will enforce plan limits and
-            add the upgrade path without faking subscriptions.
-          </p>
+          {plan?.name === "pro" ? (
+            <form action={createBillingPortalSessionAction}>
+              <button className="mt-3 inline-flex h-11 items-center justify-center rounded-md border border-moss bg-white px-4 text-sm font-semibold text-moss transition hover:bg-moss/5">
+                Manage billing
+              </button>
+            </form>
+          ) : null}
         </article>
       </section>
     </main>
