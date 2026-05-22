@@ -8,8 +8,12 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 async function databaseStatus() {
-  if (!isSupabaseConfigured() || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return "not_configured";
+  if (!isSupabaseConfigured()) {
+    return "public_env_missing";
+  }
+
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return "service_role_missing";
   }
 
   try {
@@ -27,7 +31,7 @@ async function databaseStatus() {
 
 export async function GET() {
   const db = await databaseStatus();
-  const healthy = db === "reachable" || db === "not_configured";
+  const healthy = db === "reachable";
 
   return NextResponse.json(
     {
