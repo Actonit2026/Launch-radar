@@ -118,6 +118,7 @@ Required:
 - `STRIPE_PRO_PRICE_ID`
 - `STRIPE_PRO_ANNUAL_PRICE_ID` for the annual Pro checkout path
 - `CRON_SECRET` for scheduled worker and maintenance endpoints
+- `SCHEDULED_SCAN_USER_LIMIT` for the maximum users processed by each scheduled scan run
 - `ADMIN_EMAILS` for the internal admin metrics page
 
 Stripe webhook endpoint:
@@ -127,9 +128,10 @@ Stripe webhook endpoint:
 
 Scheduled endpoints:
 
+- `GET`/`POST /api/scheduled-scans` scans due monitored pages for users, respecting scan intervals and usage limits
 - `POST /api/scan-worker` processes one queued scan job when `ASYNC_SCAN_QUEUE_ENABLED=1`
-- `POST /api/weekly-digest` sends weekly no-change/change digest emails
-- `POST /api/maintenance/cleanup` applies snapshot retention cleanup
+- `GET`/`POST /api/weekly-digest` sends weekly no-change/change digest emails
+- `GET`/`POST /api/maintenance/cleanup` applies snapshot retention cleanup
 
 Cost guard defaults:
 
@@ -146,5 +148,6 @@ Cost guard defaults:
 - `MAX_PAGES_PER_SCAN=15`
 - `AI_ESTIMATED_EUR_PER_1K_TOKENS=0.0002`
 - `ASYNC_SCAN_QUEUE_ENABLED=0`
+- `SCHEDULED_SCAN_USER_LIMIT=25`
 - `LAUNCHRADAR_USER_AGENT=LaunchRadarBot/1.0`
 - `LAUNCHRADAR_IGNORE_ROBOTS=0`

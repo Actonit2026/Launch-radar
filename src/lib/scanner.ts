@@ -40,7 +40,11 @@ import {
   sendChangeNotification,
   type ChangeNotificationContext,
 } from "@/lib/notifications";
-import { estimateScanCostEur, recordUsageEvent } from "@/lib/usage";
+import {
+  estimateScanCostEur,
+  recordUsageEvent,
+  type UsageEventType,
+} from "@/lib/usage";
 import { createDefaultMonitoredPages } from "@/lib/urls";
 
 type Supabase = SupabaseClient<Database>;
@@ -853,6 +857,10 @@ export async function rerunCompetitorIntelligence(
 export async function scanMonitoredPagesForUser(
   supabase: Supabase,
   userId: string,
+  options: {
+    usageEventType?: Extract<UsageEventType, "manual_scan" | "scheduled_scan">;
+    recordZeroUsage?: boolean;
+  } = {},
 ): Promise<ScannerResult<ScanResult>> {
   const { data: competitors, error: competitorsError } = await supabase
     .from("competitors")
@@ -1154,19 +1162,23 @@ export async function scanMonitoredPagesForUser(
     userId,
   });
 
-  await recordUsageEvent({
-    supabase,
-    userId,
-    eventType: "manual_scan",
-    quantity: result.checked + result.failed,
-    estimatedCostEur: estimateScanCostEur(result.checked + result.failed),
-    metadata: {
-      checked: result.checked,
-      failed: result.failed,
-      deferred: result.deferred,
-      changes_created: result.changesCreated,
-    },
-  });
+  const usageQuantity = result.checked + result.failed;
+
+  if (usageQuantity > 0 || options.recordZeroUsage !== false) {
+    await recordUsageEvent({
+      supabase,
+      userId,
+      eventType: options.usageEventType ?? "manual_scan",
+      quantity: usageQuantity,
+      estimatedCostEur: estimateScanCostEur(usageQuantity),
+      metadata: {
+        checked: result.checked,
+        failed: result.failed,
+        deferred: result.deferred,
+        changes_created: result.changesCreated,
+      },
+    });
+  }
 
   return { data: result };
 }

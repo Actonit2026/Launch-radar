@@ -16,6 +16,7 @@ const requiredFiles = [
   "src/app/privacy/page.tsx",
   "src/app/terms/page.tsx",
   "src/app/api/health/route.ts",
+  "src/app/api/scheduled-scans/route.ts",
   "src/app/api/weekly-digest/route.ts",
   "src/app/api/scan-worker/route.ts",
   "src/app/api/maintenance/cleanup/route.ts",
@@ -23,6 +24,7 @@ const requiredFiles = [
   "src/lib/scan-queue.ts",
   "src/lib/crawler/robots.ts",
   "docs/shareable-dossier-architecture.md",
+  "vercel.json",
 ];
 const missingFiles = requiredFiles.filter((file) => !hasFile(file));
 const envExample = read(".env.example");
@@ -45,6 +47,10 @@ const tests = read("scripts/phase11-checks.mjs");
 const hasFiftyFixtureGate = /50-page deterministic SaaS fixture set/.test(tests);
 const hasSpaGate = /JavaScript-heavy shells/.test(tests);
 const hasSsrfGate = /rejects private hosts/.test(tests);
+const vercelConfig = hasFile("vercel.json") ? read("vercel.json") : "";
+const hasProductionCrons =
+  /"path"\s*:\s*"\/api\/scheduled-scans"/.test(vercelConfig) &&
+  /"path"\s*:\s*"\/api\/weekly-digest"/.test(vercelConfig);
 
 const blockers = [
   ...missingFiles.map((file) => `Missing required launch-hardening file: ${file}`),
@@ -54,7 +60,9 @@ const blockers = [
   !hasSsrfGate ? "Private-host URL rejection is not tested." : null,
   "Production auth, Stripe webhook, billing portal, and weekly digest delivery still need live verification.",
   "Supabase advisors/RLS audit must be run after applying the latest migration.",
-  "Queue worker endpoint exists, but scheduled Vercel Cron configuration still needs production setup.",
+  !hasProductionCrons
+    ? "Scheduled Vercel Cron configuration still needs production setup."
+    : null,
 ].filter(Boolean);
 
 const scores = {

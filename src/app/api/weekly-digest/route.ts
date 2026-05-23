@@ -21,7 +21,7 @@ function sevenDaysAgoIso() {
   return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 }
 
-export async function POST(request: Request) {
+async function runWeeklyDigest(request: Request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -113,4 +113,12 @@ export async function POST(request: Request) {
     skipped,
     failures: failures.slice(0, 10),
   });
+}
+
+export async function POST(request: Request) {
+  return runWeeklyDigest(request);
+}
+
+export async function GET(request: Request) {
+  return runWeeklyDigest(request);
 }

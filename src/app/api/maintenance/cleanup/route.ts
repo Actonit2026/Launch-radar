@@ -15,7 +15,7 @@ function authorized(request: Request) {
   return request.headers.get("authorization") === `Bearer ${secret}`;
 }
 
-export async function POST(request: Request) {
+async function runCleanup(request: Request) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -48,4 +48,12 @@ export async function POST(request: Request) {
     deleted,
     errors: errors.slice(0, 10),
   });
+}
+
+export async function POST(request: Request) {
+  return runCleanup(request);
+}
+
+export async function GET(request: Request) {
+  return runCleanup(request);
 }

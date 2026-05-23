@@ -10,6 +10,7 @@ export type UsageEventType =
   | "first_scan_completed"
   | "first_product_added"
   | "manual_scan"
+  | "scheduled_scan"
   | "manual_analysis"
   | "product_scan"
   | "browser_render"
@@ -269,6 +270,55 @@ export async function canRunManualScan({
     return {
       allowed: false,
       reason: `${plan.label} plan manual scan limit reached: ${userLimit} per 24 hours.`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+export async function canRunScheduledScan({
+  supabase,
+  userId,
+}: {
+  supabase: Supabase;
+  userId: string;
+}): Promise<UsageDecision> {
+  const [budget, plan, globalScans, userScans] = await Promise.all([
+    budgetDecision(supabase),
+    getPlanForUser(supabase, userId),
+    countEvents({
+      supabase,
+      eventType: "scheduled_scan",
+      since: sinceHours(24),
+    }),
+    countEvents({
+      supabase,
+      userId,
+      eventType: "scheduled_scan",
+      since: sinceHours(24),
+    }),
+  ]);
+  const config = getUsageConfig();
+  const userLimit =
+    plan.name === "pro"
+      ? config.maxScansPerUserPerDayPro
+      : config.maxScansPerUserPerDayFree;
+
+  if (!budget.allowed) {
+    return budget;
+  }
+
+  if (globalScans >= config.maxScansPerDayGlobal) {
+    return {
+      allowed: false,
+      reason: USAGE_DEFERRED_MESSAGE,
+    };
+  }
+
+  if (userScans >= userLimit) {
+    return {
+      allowed: false,
+      reason: `${plan.label} plan scheduled scan limit reached: ${userLimit} per 24 hours.`,
     };
   }
 
