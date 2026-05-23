@@ -3,7 +3,12 @@ import type { ScrapedPage } from "@/lib/crawler/scraper";
 
 export type Confidence = "high" | "medium" | "low";
 
-export type IntelligenceStatus = "found" | "unclear" | "unavailable";
+export type IntelligenceStatus =
+  | "found"
+  | "unclear"
+  | "contact_sales"
+  | "not_detected"
+  | "unavailable";
 
 export type FactExtractionMethod =
   | "deterministic_regex"
@@ -25,7 +30,7 @@ export type StructuredFact<TNormalized = unknown> = {
 export type NormalizedPrice = {
   amount: number;
   currency: "EUR" | "USD" | "GBP";
-  period?: "month" | "year";
+  period?: "month" | "year" | "unknown";
   unit?: "user" | "seat";
   plan?: string;
 };
@@ -50,6 +55,9 @@ export type PricingDebug = {
 export type PricingAnalysis = {
   status: IntelligenceStatus;
   facts: StructuredFact[];
+  items: StructuredFact<NormalizedPrice>[];
+  selectedItem: StructuredFact<NormalizedPrice> | null;
+  debugCandidates: PricingCandidateDebug[];
   freePlan: StructuredFact | null;
   paidPlans: StructuredFact<NormalizedPrice>[];
   lowestPrice: StructuredFact<NormalizedPrice> | null;

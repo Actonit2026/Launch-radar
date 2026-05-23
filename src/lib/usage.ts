@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/database.types";
+import { isMasterAdminUser } from "@/lib/master-admin";
 import { planViewFromUser } from "@/lib/plans";
 
 type Supabase = SupabaseClient<Database>;
@@ -15,6 +16,8 @@ export type UsageEventType =
   | "product_scan"
   | "browser_render"
   | "weekly_digest"
+  | "demo_example_refresh"
+  | "master_admin_action"
   | "recommendation_viewed"
   | "ai_summary"
   | "recommendations_generated"
@@ -213,6 +216,29 @@ export async function recordUsageEvent({
   return error?.message ?? null;
 }
 
+async function masterAdminBypassDecision({
+  supabase,
+  userId,
+  action,
+}: {
+  supabase: Supabase;
+  userId: string;
+  action: string;
+}) {
+  if (!(await isMasterAdminUser({ supabase, userId }))) {
+    return false;
+  }
+
+  await recordUsageEvent({
+    supabase,
+    userId,
+    eventType: "master_admin_action",
+    metadata: { action },
+  });
+
+  return true;
+}
+
 async function budgetDecision(supabase: Supabase): Promise<UsageDecision> {
   const config = getUsageConfig();
   const monthlyCost = await sumMonthlyCost(supabase);
@@ -234,6 +260,16 @@ export async function canRunManualScan({
   supabase: Supabase;
   userId: string;
 }): Promise<UsageDecision> {
+  if (
+    await masterAdminBypassDecision({
+      supabase,
+      userId,
+      action: "manual_scan_limit_bypass",
+    })
+  ) {
+    return { allowed: true };
+  }
+
   const [budget, plan, globalScans, userScans] = await Promise.all([
     budgetDecision(supabase),
     getPlanForUser(supabase, userId),
@@ -283,6 +319,16 @@ export async function canRunScheduledScan({
   supabase: Supabase;
   userId: string;
 }): Promise<UsageDecision> {
+  if (
+    await masterAdminBypassDecision({
+      supabase,
+      userId,
+      action: "scheduled_scan_limit_bypass",
+    })
+  ) {
+    return { allowed: true };
+  }
+
   const [budget, plan, globalScans, userScans] = await Promise.all([
     budgetDecision(supabase),
     getPlanForUser(supabase, userId),
@@ -332,6 +378,16 @@ export async function canRunManualAnalysis({
   supabase: Supabase;
   userId: string;
 }): Promise<UsageDecision> {
+  if (
+    await masterAdminBypassDecision({
+      supabase,
+      userId,
+      action: "manual_analysis_limit_bypass",
+    })
+  ) {
+    return { allowed: true };
+  }
+
   const plan = await getPlanForUser(supabase, userId);
   const config = getUsageConfig();
   const userLimit =
@@ -362,6 +418,16 @@ export async function canRunProductScan({
   supabase: Supabase;
   userId: string;
 }): Promise<UsageDecision> {
+  if (
+    await masterAdminBypassDecision({
+      supabase,
+      userId,
+      action: "product_scan_limit_bypass",
+    })
+  ) {
+    return { allowed: true };
+  }
+
   const plan = await getPlanForUser(supabase, userId);
   const config = getUsageConfig();
   const userLimit =
@@ -394,6 +460,17 @@ export async function canRunAiSummary({
   userId?: string;
   estimatedTokens: number;
 }): Promise<UsageDecision> {
+  if (
+    userId &&
+    (await masterAdminBypassDecision({
+      supabase,
+      userId,
+      action: "ai_limit_bypass",
+    }))
+  ) {
+    return { allowed: true };
+  }
+
   const config = getUsageConfig();
   const [budget, globalAiCalls, userAiCalls, monthlyTokens] = await Promise.all([
     budgetDecision(supabase),
@@ -448,6 +525,16 @@ export async function canRunBrowserRender({
   supabase: Supabase;
   userId: string;
 }): Promise<UsageDecision> {
+  if (
+    await masterAdminBypassDecision({
+      supabase,
+      userId,
+      action: "browser_render_limit_bypass",
+    })
+  ) {
+    return { allowed: true };
+  }
+
   const config = getUsageConfig();
   const plan = await getPlanForUser(supabase, userId);
 

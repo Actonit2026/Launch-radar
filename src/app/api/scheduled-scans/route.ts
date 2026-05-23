@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { scanMonitoredPagesForUser } from "@/lib/scanner";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 import { canRunScheduledScan, USAGE_DEFERRED_MESSAGE } from "@/lib/usage";
+import { refreshHomepageDemoExamples } from "@/lib/demo-examples";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,6 +29,18 @@ async function runScheduledScans(request: Request) {
   }
 
   const supabase = getSupabaseAdminClient();
+  const demoRefresh = await refreshHomepageDemoExamples().catch((error) => ({
+    attempted: 0,
+    saved: 0,
+    failed: 1,
+    examples: [],
+    errors: [
+      error instanceof Error
+        ? error.message
+        : "Homepage demo example refresh failed.",
+    ],
+    rotationWeek: 0,
+  }));
   const { data: users, error } = await supabase
     .from("users")
     .select("id")
@@ -84,6 +97,12 @@ async function runScheduledScans(request: Request) {
     checked,
     failed,
     changesCreated,
+    demoRefresh: {
+      attempted: demoRefresh.attempted,
+      saved: demoRefresh.saved,
+      failed: demoRefresh.failed,
+      errors: demoRefresh.errors,
+    },
     errors: Array.from(new Set(errors)).slice(0, 10),
   });
 }

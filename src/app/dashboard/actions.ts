@@ -20,6 +20,7 @@ import {
   supabaseConfigMessage,
 } from "@/lib/supabase/config";
 import { canRunManualAnalysis, recordUsageEvent } from "@/lib/usage";
+import { isMasterAdminEmail } from "@/lib/master-admin";
 
 export type CompetitorFormState = {
   error?: string;
@@ -151,11 +152,25 @@ export async function createCompetitorAction(
 
   const plan = planViewFromUser(profile);
   const competitorCount = count ?? 0;
+  const masterAdmin = isMasterAdminEmail(user.email);
 
-  if (isAtCompetitorLimit({ competitorCount, plan })) {
+  if (!masterAdmin && isAtCompetitorLimit({ competitorCount, plan })) {
     return {
       error: `${plan.label} plan limit reached: ${competitorCount}/${plan.competitorLimit} competitors tracked. Upgrade to Pro to track up to 20 competitors.`,
     };
+  }
+
+  if (masterAdmin && isAtCompetitorLimit({ competitorCount, plan })) {
+    await recordUsageEvent({
+      supabase,
+      userId: user.id,
+      eventType: "master_admin_action",
+      metadata: {
+        action: "competitor_limit_bypass",
+        competitor_count: competitorCount,
+        plan: plan.name,
+      },
+    });
   }
 
   const { data: competitor, error: competitorError } = await supabase

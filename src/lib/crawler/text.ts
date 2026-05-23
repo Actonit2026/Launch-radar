@@ -36,15 +36,41 @@ export type PageModel = {
   url: string;
   title: string;
   metaDescription: string;
+  meta_description: string;
+  ogTitle: string;
+  og_title: string;
+  ogDescription: string;
+  og_description: string;
+  h1: string | null;
   hero: PageBlock | null;
+  heroBlocks: PageBlock[];
+  hero_blocks: PageBlock[];
   pricingBlocks: PageBlock[];
+  pricing_blocks: PageBlock[];
   featureBlocks: PageBlock[];
+  feature_blocks: PageBlock[];
   ctaBlocks: PageBlock[];
+  cta_blocks: PageBlock[];
   changelogBlocks: PageBlock[];
+  changelog_blocks: PageBlock[];
+  faqBlocks: PageBlock[];
+  faq_blocks: PageBlock[];
   nav: PageBlock[];
+  navBlocks: PageBlock[];
+  nav_blocks: PageBlock[];
   footer: PageBlock[];
+  footerBlocks: PageBlock[];
+  footer_blocks: PageBlock[];
+  authBlocks: PageBlock[];
+  auth_blocks: PageBlock[];
   blocks: PageBlock[];
   visibleContent: string;
+  visible_text: string;
+  debug: {
+    block_count: number;
+    classification_counts: Record<PageBlockType, number>;
+    ignored_block_types: PageBlockType[];
+  };
 };
 
 const noiseSelectors = [
@@ -316,6 +342,38 @@ function hasPriceSignal(value: string) {
   );
 }
 
+function ogValue($: cheerio.CheerioAPI, property: string) {
+  return (
+    $(`meta[property='${property}']`).attr("content") ??
+    $(`meta[name='${property}']`).attr("content") ??
+    ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function classificationCounts(blocks: PageBlock[]) {
+  const counts = {
+    hero: 0,
+    pricing: 0,
+    features: 0,
+    cta: 0,
+    faq: 0,
+    comparison: 0,
+    changelog: 0,
+    footer: 0,
+    nav: 0,
+    auth: 0,
+    unknown: 0,
+  } satisfies Record<PageBlockType, number>;
+
+  blocks.forEach((block) => {
+    counts[block.type] += 1;
+  });
+
+  return counts;
+}
+
 function classifyBlock({
   element,
   attrs,
@@ -406,6 +464,9 @@ export function buildPageModel(html: string, baseUrl: string): PageModel {
 
   const title = extractPageTitle(html);
   const metaDescription = extractMetaDescription(html);
+  const ogTitle = ogValue($, "og:title");
+  const ogDescription = ogValue($, "og:description");
+  const h1 = normalizeSegment($("h1").first().text()) || null;
   const rawElements = $("nav,footer,header,main > section,main > article,main > div,section,article,form,dialog,[role='dialog'],[class*='modal'],[id*='modal'],[class*='pricing'],[id*='pricing'],[class*='price'],[id*='price'],[class*='plan'],[id*='plan'],[class*='feature'],[id*='feature'],[class*='hero'],[id*='hero'],[class*='cta'],[id*='cta'],[class*='changelog'],[id*='changelog'],table")
     .toArray()
     .slice(0, 120);
@@ -453,8 +514,19 @@ export function buildPageModel(html: string, baseUrl: string): PageModel {
   const visibleBlocks = blocks.filter(
     (block) => !["nav", "footer", "auth"].includes(block.type),
   );
+  const heroBlocks = visibleBlocks.filter((block) => block.type === "hero");
+  const pricingBlocks = visibleBlocks.filter((block) => block.type === "pricing");
+  const featureBlocks = visibleBlocks.filter((block) => block.type === "features");
+  const ctaBlocks = visibleBlocks.filter((block) => block.type === "cta");
+  const changelogBlocks = visibleBlocks.filter(
+    (block) => block.type === "changelog",
+  );
+  const faqBlocks = visibleBlocks.filter((block) => block.type === "faq");
+  const navBlocks = blocks.filter((block) => block.type === "nav");
+  const footerBlocks = blocks.filter((block) => block.type === "footer");
+  const authBlocks = blocks.filter((block) => block.type === "auth");
   const hero =
-    visibleBlocks.find((block) => block.type === "hero") ??
+    heroBlocks[0] ??
     visibleBlocks.find((block) => block.heading || block.text) ??
     null;
   const visibleContent = visibleBlocks
@@ -471,17 +543,41 @@ export function buildPageModel(html: string, baseUrl: string): PageModel {
     url: baseUrl,
     title,
     metaDescription,
+    meta_description: metaDescription,
+    ogTitle,
+    og_title: ogTitle,
+    ogDescription,
+    og_description: ogDescription,
+    h1,
     hero,
-    pricingBlocks: visibleBlocks.filter((block) => block.type === "pricing"),
-    featureBlocks: visibleBlocks.filter((block) => block.type === "features"),
-    ctaBlocks: visibleBlocks.filter((block) => block.type === "cta"),
-    changelogBlocks: visibleBlocks.filter(
-      (block) => block.type === "changelog",
-    ),
-    nav: blocks.filter((block) => block.type === "nav"),
-    footer: blocks.filter((block) => block.type === "footer"),
+    heroBlocks,
+    hero_blocks: heroBlocks,
+    pricingBlocks,
+    pricing_blocks: pricingBlocks,
+    featureBlocks,
+    feature_blocks: featureBlocks,
+    ctaBlocks,
+    cta_blocks: ctaBlocks,
+    changelogBlocks,
+    changelog_blocks: changelogBlocks,
+    faqBlocks,
+    faq_blocks: faqBlocks,
+    nav: navBlocks,
+    navBlocks,
+    nav_blocks: navBlocks,
+    footer: footerBlocks,
+    footerBlocks,
+    footer_blocks: footerBlocks,
+    authBlocks,
+    auth_blocks: authBlocks,
     blocks,
     visibleContent,
+    visible_text: visibleContent,
+    debug: {
+      block_count: blocks.length,
+      classification_counts: classificationCounts(blocks),
+      ignored_block_types: ["nav", "footer", "auth"],
+    },
   };
 }
 

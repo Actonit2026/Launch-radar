@@ -13,7 +13,7 @@ import {
 const featureSignalPattern =
   /\b(?:feature|integration|workflow|automation|automated|dashboard|dashboards|analytics|report|summary|summaries|api|security|sso|export|import|collaboration|template|templates|webhook|webhooks|alerts|search|sync|permissions|roles|tracking|monitoring|proposal|proposals|generator|generation|voice|personalization|personalized|writing sample|matching|runbook|runbooks|escalation|escalations|status page|editor)\b/i;
 const rejectedFeaturePattern =
-  /\b(?:pricing|price|free|contact sales|book a demo|sign up|get started|privacy|terms|cookie|copyright)\b/i;
+  /\b(?:pricing|price|free|contact sales|book a demo|sign up|get started|start free|start trial|privacy|terms|cookie|copyright|learn more|live demo|view demo|copy to clipboard|testimonial|customer story|co-founder|founder|ceo|cto|people ❤️|people love)\b/i;
 
 function featureNameFromLine(line: string) {
   const cleaned = line
@@ -23,6 +23,8 @@ function featureNameFromLine(line: string) {
   if (
     cleaned.length < 4 ||
     cleaned.length > 90 ||
+    /^\d{4}(?:-\d{4})?$/.test(cleaned) ||
+    /^(?:import|const|function|npm|curl)\b/i.test(cleaned) ||
     (rejectedFeaturePattern.test(cleaned) &&
       !featureSignalPattern.test(cleaned))
   ) {
@@ -72,9 +74,12 @@ export function analyzeFeatures(
     : lines;
   const sourceUrl = scrape.finalUrl;
   const candidates: FeatureFact[] = [];
+  const featureBlockKeys = new Set(featureBlockLines.map(sentenceCaseKey));
 
   candidateLines.forEach((line, index) => {
-    if (!featureSignalPattern.test(line) && pageType !== "features") {
+    const fromFeatureBlock = featureBlockKeys.has(sentenceCaseKey(line));
+
+    if (!featureSignalPattern.test(line) && pageType !== "features" && !fromFeatureBlock) {
       return;
     }
 
@@ -85,7 +90,10 @@ export function analyzeFeatures(
     }
 
     const description = descriptionForFeature(candidateLines, index);
-    const confidence = featureConfidence(pageType, line);
+    const confidence =
+      fromFeatureBlock && !featureSignalPattern.test(line)
+        ? { confidence: "medium" as const, confidenceScore: 0.66 }
+        : featureConfidence(pageType, line);
 
     candidates.push(
       makeFact({

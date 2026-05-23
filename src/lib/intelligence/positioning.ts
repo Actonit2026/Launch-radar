@@ -30,8 +30,8 @@ function usableLine(line: string) {
     line.length >= 8 &&
     line.length <= 180 &&
     !isGenericBusinessSummary(line) &&
-    !/^(?:pricing|features|docs|login|log in|sign in|sign up|dashboard)$/i.test(line) &&
-    !/\b(?:login to your dashboard|forgot password|reset password)\b/i.test(line)
+    !/^(?:pricing|features|docs|login|log in|sign in|sign up|dashboard|copy to clipboard|learn more|view demo|live demo)$/i.test(line) &&
+    !/\b(?:login to your dashboard|forgot password|reset password|copy to clipboard|npm install|import \{|const\s|function\s*\(|curl\s)/i.test(line)
   );
 }
 
@@ -101,24 +101,35 @@ export function analyzePositioning(
     (block) => block.type === "hero",
   );
   const heroLines = uniqueBy(
-    heroBlocks
-      .flatMap((block) => blockText(block).split("\n"))
+    [
+      ...(scrape.pageModel?.h1 ? [scrape.pageModel.h1] : []),
+      ...heroBlocks.flatMap((block) => [
+        block.heading ?? "",
+        ...blockText(block).split("\n"),
+      ]),
+    ]
       .map(cleanPositioningLine)
       .filter(Boolean),
     sentenceCaseKey,
   );
+  const metaLines = [
+    scrape.metaDescription,
+    scrape.pageModel?.ogDescription,
+    scrape.pageModel?.ogTitle,
+    scrape.title,
+  ].filter((line): line is string => Boolean(line));
   const lines = uniqueBy(
     (hasPageModel
-      ? [scrape.title, scrape.metaDescription, ...heroLines, ...bodyLines]
-      : [...bodyLines, scrape.title, scrape.metaDescription])
+      ? [...heroLines, ...metaLines, ...bodyLines]
+      : [...bodyLines, ...metaLines])
       .map(cleanPositioningLine)
       .filter(Boolean),
     sentenceCaseKey,
   );
   const homepageLines = uniqueBy(
     (hasPageModel
-      ? [...heroLines, scrape.title, scrape.metaDescription, ...bodyLines]
-      : [...bodyLines, scrape.title, scrape.metaDescription])
+      ? [...heroLines, ...metaLines, ...bodyLines]
+      : [...bodyLines, ...metaLines])
       .map(cleanPositioningLine)
       .filter(Boolean),
     sentenceCaseKey,
@@ -128,7 +139,7 @@ export function analyzePositioning(
   const homepageHeadline =
     pageType === "homepage"
       ? firstUsefulLine(homepageLines)
-      : firstUsefulLine([scrape.title, scrape.metaDescription].filter(Boolean));
+      : firstUsefulLine(metaLines);
 
   if (homepageHeadline) {
     used.add(sentenceCaseKey(homepageHeadline));

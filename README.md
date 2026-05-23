@@ -120,6 +120,7 @@ Required:
 - `CRON_SECRET` for scheduled worker and maintenance endpoints
 - `SCHEDULED_SCAN_USER_LIMIT` for the maximum users processed by each scheduled scan run
 - `ADMIN_EMAILS` for the internal admin metrics page
+- `MASTER_ADMIN_EMAILS` for server-side analyzer/debug and testing privileges
 
 Stripe webhook endpoint:
 
@@ -129,6 +130,7 @@ Stripe webhook endpoint:
 Scheduled endpoints:
 
 - `GET`/`POST /api/scheduled-scans` scans due monitored pages for users, respecting scan intervals and usage limits
+- `GET`/`POST /api/demo-examples/refresh` refreshes cached homepage proof examples with the deterministic analyzer
 - `POST /api/scan-worker` processes one queued scan job when `ASYNC_SCAN_QUEUE_ENABLED=1`
 - `GET`/`POST /api/weekly-digest` sends weekly no-change/change digest emails
 - `GET`/`POST /api/maintenance/cleanup` applies snapshot retention cleanup

@@ -19,8 +19,28 @@ const ctaPatterns: Array<{ intent: CtaIntent; pattern: RegExp; score: number }> 
     { intent: "view_pricing", pattern: /\b(?:view|see|compare)?\s?pricing\b/i, score: 0.72 },
     { intent: "download", pattern: /\bdownload\b/i, score: 0.72 },
   ];
+const ignoredCtaPattern =
+  /^(?:login|log in|sign in|dashboard|account|privacy|terms|legal|cookie settings?|copy to clipboard|learn more)$/i;
+
+function isLikelyCtaText(value: string) {
+  const text = value.trim();
+
+  return (
+    text.length >= 2 &&
+    text.length <= 48 &&
+    !ignoredCtaPattern.test(text) &&
+    !/[.:;]/.test(text) &&
+    !/\b(?:using|mailchimp|api|sdk|template|analytics|feature|blog|privacy|terms)\b/i.test(
+      text,
+    )
+  );
+}
 
 function classifyCta(value: string) {
+  if (!isLikelyCtaText(value)) {
+    return { intent: "unknown" as const, score: 0.2 };
+  }
+
   const match = ctaPatterns.find((candidate) => candidate.pattern.test(value));
 
   return match ?? { intent: "unknown" as const, score: 0.4 };

@@ -104,6 +104,78 @@ export type Database = {
           },
         ];
       };
+      demo_example_results: {
+        Row: {
+          id: string;
+          name: string;
+          site_url: string;
+          source_url: string;
+          category: string;
+          slot: number;
+          rotation_week: number;
+          status: "success" | "partial" | "failed";
+          positioning_result: Json;
+          pricing_result: Json;
+          cta_result: Json;
+          feature_result: Json;
+          changelog_result: Json;
+          analysis_json: Json;
+          evidence_json: Json;
+          confidence: "high" | "medium" | "low";
+          last_verified_at: string | null;
+          analyzer_version: string;
+          failure_reason: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          site_url: string;
+          source_url: string;
+          category: string;
+          slot?: number;
+          rotation_week: number;
+          status?: "success" | "partial" | "failed";
+          positioning_result?: Json;
+          pricing_result?: Json;
+          cta_result?: Json;
+          feature_result?: Json;
+          changelog_result?: Json;
+          analysis_json?: Json;
+          evidence_json?: Json;
+          confidence?: "high" | "medium" | "low";
+          last_verified_at?: string | null;
+          analyzer_version: string;
+          failure_reason?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          site_url?: string;
+          source_url?: string;
+          category?: string;
+          slot?: number;
+          rotation_week?: number;
+          status?: "success" | "partial" | "failed";
+          positioning_result?: Json;
+          pricing_result?: Json;
+          cta_result?: Json;
+          feature_result?: Json;
+          changelog_result?: Json;
+          analysis_json?: Json;
+          evidence_json?: Json;
+          confidence?: "high" | "medium" | "low";
+          last_verified_at?: string | null;
+          analyzer_version?: string;
+          failure_reason?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       competitors: {
         Row: {
           id: string;
@@ -684,4 +756,6 @@ export type ProductRecommendation =
   Database["public"]["Tables"]["product_recommendations"]["Row"];
 export type UsageEvent =
   Database["public"]["Tables"]["usage_events"]["Row"];
+export type DemoExampleResult =
+  Database["public"]["Tables"]["demo_example_results"]["Row"];
 export type PageType = Database["public"]["Enums"]["page_type"];

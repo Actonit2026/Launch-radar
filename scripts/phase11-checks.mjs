@@ -272,6 +272,13 @@ function fieldsHaveEvidence(facts) {
   }
 }
 
+function assertPrice(pricing, amount, currency, period) {
+  assert.ok(pricing.lowestPrice, "expected selected lowest price");
+  assert.equal(pricing.lowestPrice.normalized_value.amount, amount);
+  assert.equal(pricing.lowestPrice.normalized_value.currency, currency);
+  assert.equal(pricing.lowestPrice.normalized_value.period, period);
+}
+
 try {
   compileSources();
   const restoreResolver = installAliasResolver();
@@ -308,6 +315,26 @@ try {
     compareSnapshotAnalyses,
     normalizeForChangeDetection,
   } = require(path.join(outDir, "src/lib/change-detection.js"));
+
+  function pageFromHtml({
+    body,
+    title = "Fixture product",
+    url = "https://example.com/",
+    pageType = "homepage",
+  }) {
+    const fixtureHtml = html({ title, body });
+    const pageModel = buildPageModel(fixtureHtml, url);
+
+    return analyzePageIntelligence({
+      pageType,
+      scrape: scrapedPage({
+        url,
+        title,
+        rawText: extractMeaningfulText(fixtureHtml),
+        pageModel,
+      }),
+    });
+  }
 
   check("normalizes bare domain", () => {
     const parsed = parseCompetitorUrl("example.com");
@@ -373,6 +400,96 @@ try {
     fieldsHaveEvidence(pricing.facts);
   });
 
+  check("Final V4 deterministic HTML analyzer fixtures", () => {
+    const simple = pageFromHtml({
+      body: "<section class=\"hero\"><h1>Proposal workspace</h1><button>Get Plus - \u20AC5</button></section>",
+    });
+    assert.equal(simple.pricing.status, "found");
+    assertPrice(simple.pricing, 5, "EUR", "unknown");
+    assert.match(simple.pricing.lowestPrice.evidence_text, /Get Plus - \u20AC5/);
+
+    const monthly = pageFromHtml({
+      body: "<section class=\"pricing\"><h2>Pro</h2><p>Pro \u20AC19/month</p></section>",
+      pageType: "pricing",
+    });
+    assertPrice(monthly.pricing, 19, "EUR", "month");
+
+    const amountFirst = pageFromHtml({
+      body: "<section class=\"pricing\"><h2>Plus</h2><p>5\u20AC per month</p></section>",
+      pageType: "pricing",
+    });
+    assertPrice(amountFirst.pricing, 5, "EUR", "month");
+
+    const card = pageFromHtml({
+      body: "<section class=\"pricing\"><article><h3>Starter</h3><p>\u20AC9</p><p>per month</p></article></section>",
+      pageType: "pricing",
+    });
+    assertPrice(card.pricing, 9, "EUR", "month");
+    assert.ok(
+      card.pricing.planNames.some((plan) => /starter/i.test(plan.value)),
+      "pricing card should preserve plan name",
+    );
+
+    const table = pageFromHtml({
+      body: "<table><tr><th>Plan</th><th>Price</th></tr><tr><td>Pro</td><td>\u20AC19/month</td></tr></table>",
+      pageType: "pricing",
+    });
+    assertPrice(table.pricing, 19, "EUR", "month");
+    assert.ok(table.pricing.planNames.some((plan) => /pro/i.test(plan.value)));
+
+    const falsePositive = pageFromHtml({
+      body: "<section><p>2,500 customers</p><p>99.9% uptime</p><p>24/7 support</p><p>100 integrations</p><p>Founded in 2024</p></section>",
+    });
+    assert.equal(falsePositive.pricing.paidPlans.length, 0);
+    assert.equal(falsePositive.pricing.status, "unavailable");
+
+    const contactSales = pageFromHtml({
+      body: "<section class=\"pricing\"><h2>Enterprise</h2><p>Contact sales</p></section>",
+      pageType: "pricing",
+    });
+    assert.equal(contactSales.pricing.status, "contact_sales");
+    assert.ok(contactSales.pricing.contactSales);
+
+    const polluted = pageFromHtml({
+      body: [
+        "<nav>Login Dashboard Sign in</nav>",
+        "<section class=\"hero\"><h1>Freelance Proposal Generator That Matches Your Voice</h1><p>Create proposals from your own writing.</p></section>",
+      ].join(""),
+    });
+    assert.equal(
+      polluted.positioning.homepageHeadline.value,
+      "Freelance Proposal Generator That Matches Your Voice",
+    );
+
+    const cta = pageFromHtml({
+      body: "<section class=\"hero\"><h1>Proposal workspace</h1><button>Sign up free</button></section>",
+    });
+    assert.equal(cta.ctas.primaryCta.value, "Sign up free");
+
+    const features = pageFromHtml({
+      body: [
+        "<section class=\"features\">",
+        "<article><h3>Voice matching</h3><p>Generate proposals from your writing sample.</p></article>",
+        "<article><h3>Proposal generation</h3><p>Draft tailored client proposals fast.</p></article>",
+        "<article><h3>Personalized output</h3><p>Keep the wording close to your style.</p></article>",
+        "</section>",
+      ].join(""),
+      pageType: "features",
+    });
+    assert.equal(features.features.status, "found");
+    assert.ok(features.features.features.length >= 3);
+    fieldsHaveEvidence([
+      ...simple.pricing.facts,
+      ...monthly.pricing.facts,
+      ...amountFirst.pricing.facts,
+      ...card.pricing.facts,
+      ...table.pricing.facts,
+      ...polluted.positioning.facts,
+      ...cta.ctas.ctas,
+      ...features.features.features,
+    ]);
+  });
+
   check("detects per-user USD pricing and contact sales", () => {
     const pricing = analyzePricing(
       scrapedPage({
@@ -394,7 +511,7 @@ try {
       }),
       "pricing",
     );
-    assert.equal(pricing.status, "found");
+    assert.equal(pricing.status, "contact_sales");
     assert.equal(pricing.paidPlans.length, 0);
     assert.ok(pricing.contactSales);
   });
@@ -448,7 +565,7 @@ try {
     assert.equal(page.pricing.status, "found");
     assert.equal(page.pricing.lowestPrice.normalized_value.amount, 5);
     assert.equal(page.pricing.lowestPrice.normalized_value.currency, "EUR");
-    assert.equal(page.pricing.lowestPrice.normalized_value.period, undefined);
+    assert.equal(page.pricing.lowestPrice.normalized_value.period, "unknown");
     assert.match(page.pricing.lowestPrice.evidence_text, /\u20AC5|Get Plus/i);
     assert.match(page.positioning.homepageHeadline.value, /proposal generator/i);
     assert.doesNotMatch(page.positioning.homepageHeadline.value, /login|dashboard/i);
@@ -574,7 +691,7 @@ try {
 
     for (const text of contactSalesFixtures) {
       const pricing = analyzePricing(scrapedPage({ rawText: text }), "pricing");
-      assert.equal(pricing.status, "found", text);
+      assert.equal(pricing.status, "contact_sales", text);
       assert.ok(pricing.contactSales, text);
       assert.equal(pricing.paidPlans.length, 0, text);
     }

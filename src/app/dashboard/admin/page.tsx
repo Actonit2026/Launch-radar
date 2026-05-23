@@ -48,6 +48,14 @@ export default async function AdminPage() {
           Operational counters for launch safety. This page is only available
           to emails in ADMIN_EMAILS.
         </p>
+        <div className="mt-5 flex flex-wrap gap-3">
+          <Link
+            href="/admin/analyzer"
+            className="inline-flex h-10 items-center justify-center rounded-md bg-moss px-4 text-sm font-semibold text-white"
+          >
+            Analyzer debug
+          </Link>
+        </div>
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">

@@ -30,6 +30,7 @@ type PriceCandidate = {
   score: number;
   reasons: string[];
   rejected?: string;
+  ambiguous?: boolean;
 };
 
 const currencyBySymbol: Record<string, NormalizedPrice["currency"]> = {
@@ -58,9 +59,9 @@ const contactSalesPattern =
 const weakContactSalesPattern =
   /\b(?:contact us|book a demo|request a quote|request quote|sales-led pricing)\b/i;
 const monthlyPattern =
-  /\b(?:\/\s?mo|\/\s?month|per month|monthly|billed monthly|paid monthly|month)\b/i;
+  /\b(?:\/\s?mo|\/\s?month|per month|monthly|billed monthly|paid monthly|month|mois|par mois)\b/i;
 const yearlyPattern =
-  /\b(?:\/\s?yr|\/\s?year|per year|annually|annual|yearly|billed annually)\b/i;
+  /\b(?:\/\s?yr|\/\s?year|per year|annually|annual|yearly|billed annually|per annum)\b/i;
 const unitPattern = /\b(?:per|\/)\s?(?:user|seat)\b/i;
 const planPattern =
   /\b(?:free|starter|basic|plus|pro|premium|team|business|growth|enterprise|upgrade|plan|package|tier)\b/i;
@@ -70,6 +71,12 @@ const ctaContextPattern =
   /\b(?:get plus|get pro|upgrade|start free|sign up|subscribe|get started|buy|checkout|choose plan)\b/i;
 const statRejectPattern =
   /\b(?:customers|users|visitors|uptime|support|founded|employees|integrations|templates|examples|reviews|stars|rating|raised|funding|revenue|arr|mrr|million|billion|downloads)\b|%/i;
+const dateRejectPattern =
+  /\b(?:founded|since|copyright|updated|published|released|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|20\d{2}|19\d{2})\b/i;
+const footerLegalPattern =
+  /\b(?:privacy|terms|legal|cookie|copyright|all rights reserved)\b/i;
+const testimonialPattern =
+  /\b(?:testimonial|customer story|case study|review|rated|stars)\b/i;
 
 function parseAmount(value: string) {
   return Number(value.replace(",", "."));
@@ -82,7 +89,7 @@ function normalizedCurrency(symbolOrCode: string) {
   );
 }
 
-function periodForContext(context: string): NormalizedPrice["period"] | undefined {
+function periodForContext(context: string): NormalizedPrice["period"] {
   if (monthlyPattern.test(context)) {
     return "month";
   }
@@ -91,7 +98,7 @@ function periodForContext(context: string): NormalizedPrice["period"] | undefine
     return "year";
   }
 
-  return undefined;
+  return "unknown";
 }
 
 function unitForContext(context: string): NormalizedPrice["unit"] | undefined {
@@ -153,6 +160,11 @@ function scoreCandidate({
   let score = 50;
   const reasons = ["currency"];
 
+  if (section === "pricing" || pageType === "pricing") {
+    score += 25;
+    reasons.push("pricing_section");
+  }
+
   if (planPattern.test(context)) {
     score += 20;
     reasons.push("plan_context");
@@ -168,19 +180,39 @@ function scoreCandidate({
     reasons.push("cta_nearby");
   }
 
-  if (section === "pricing" || pageType === "pricing") {
-    score += 15;
-    reasons.push("pricing_section");
-  }
-
   if (pricingContextPattern.test(context)) {
     score += 10;
     reasons.push("pricing_language");
   }
 
+  if (/\b(?:table|card|cards|tier|tiers)\b/i.test(context)) {
+    score += 10;
+    reasons.push("card_or_table_structure");
+  }
+
+  if (/\b(?:upgrade|signup|sign up|pay|paid|purchase|subscribe|checkout|buy)\b/i.test(context)) {
+    score += 10;
+    reasons.push("purchase_language");
+  }
+
   if (statRejectPattern.test(context) && !pricingContextPattern.test(context)) {
-    score -= 35;
+    score -= 40;
     reasons.push("stat_context_penalty");
+  }
+
+  if (dateRejectPattern.test(context) && !pricingContextPattern.test(context)) {
+    score -= 30;
+    reasons.push("date_or_year_penalty");
+  }
+
+  if (footerLegalPattern.test(context) && section === "footer") {
+    score -= 30;
+    reasons.push("footer_legal_penalty");
+  }
+
+  if (testimonialPattern.test(context) && !pricingContextPattern.test(context)) {
+    score -= 20;
+    reasons.push("testimonial_penalty");
   }
 
   if (/\b(?:m|mm|b|bn)\b/i.test(rawText)) {
@@ -201,9 +233,14 @@ function candidateDebug(
     source_url: sourceUrl,
     section: candidate.section,
     score: candidate.score,
-    accepted: !candidate.rejected,
+    accepted: !candidate.rejected && !candidate.ambiguous,
     reasons: candidate.reasons,
-    ...(candidate.rejected ? { rejection_reason: candidate.rejected } : {}),
+    ...(candidate.rejected || candidate.ambiguous
+      ? {
+          rejection_reason:
+            candidate.rejected ?? "score_between_unclear_and_accepted",
+        }
+      : {}),
   };
 }
 
@@ -246,7 +283,7 @@ function candidatesFromContext({
         rawText: match[0],
       });
       const rejected =
-        scoring.score < 40
+        scoring.score < 35
           ? "confidence_below_threshold"
           : amount <= 0
             ? "non_positive_amount"
@@ -265,6 +302,7 @@ function candidatesFromContext({
         score: scoring.score,
         reasons: scoring.reasons,
         rejected,
+        ambiguous: scoring.score >= 35 && scoring.score < 50,
       });
     }
   }
@@ -334,7 +372,8 @@ function candidatePlanName(candidate: PriceCandidate, previousLine?: string) {
     beforePrice.length >= 2 &&
     beforePrice.length <= 48 &&
     !/\d/.test(beforePrice) &&
-    planPattern.test(beforePrice)
+    (planPattern.test(beforePrice) ||
+      /^[A-Z][A-Za-z0-9 -]{1,30}$/.test(beforePrice))
   ) {
     return beforePrice;
   }
@@ -473,7 +512,10 @@ export function analyzePricing(
     }),
   );
   const acceptedCandidates = allCandidates.filter(
-    (candidate) => !candidate.rejected,
+    (candidate) => !candidate.rejected && !candidate.ambiguous,
+  );
+  const unclearCandidates = allCandidates.filter(
+    (candidate) => !candidate.rejected && candidate.ambiguous,
   );
   const priceFacts = uniqueBy(
     acceptedCandidates.map((candidate) => priceFact({ candidate, sourceUrl })),
@@ -535,16 +577,28 @@ export function analyzePricing(
   const warnings: string[] = [];
 
   if (!paidPlans.length && !freePlan && !contactSales) {
-    warnings.push("No public pricing block detected on this URL.");
+    warnings.push(
+      unclearCandidates.length
+        ? "Pricing amount detected, but confidence was too limited."
+        : "No public pricing block detected on this URL.",
+    );
   }
 
-  if (allCandidates.some((candidate) => candidate.rejected)) {
+  if (allCandidates.some((candidate) => candidate.rejected || candidate.ambiguous)) {
     warnings.push("Some pricing-like matches were rejected. See pricing debug.");
   }
 
+  const status: PricingAnalysis["status"] =
+    paidPlans.length || freePlan
+      ? "found"
+      : contactSales
+        ? "contact_sales"
+        : unclearCandidates.length
+          ? "unclear"
+          : "unavailable";
+
   return {
-    status:
-      paidPlans.length || freePlan || contactSales ? "found" : "unavailable",
+    status,
     facts: [
       ...paidPlans,
       ...(freePlan ? [freePlan] : []),
@@ -552,6 +606,9 @@ export function analyzePricing(
       ...(pricingTierCount ? [pricingTierCount] : []),
       ...planNames,
     ],
+    items: paidPlans,
+    selectedItem: paidPlans[0] ?? null,
+    debugCandidates,
     freePlan,
     paidPlans,
     lowestPrice: paidPlans[0] ?? null,

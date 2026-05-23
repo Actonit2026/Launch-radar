@@ -1,5 +1,6 @@
 import { getUsageConfig } from "@/lib/usage";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
+import { isMasterAdminEmail } from "@/lib/master-admin";
 
 function dayStartIso() {
   const now = new Date();
@@ -27,12 +28,7 @@ function countByType(
 }
 
 export function isAdminEmail(email?: string | null) {
-  const admins = (process.env.ADMIN_EMAILS ?? "")
-    .split(",")
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-
-  return Boolean(email && admins.includes(email.toLowerCase()));
+  return isMasterAdminEmail(email);
 }
 
 export async function getAdminCostMetrics() {

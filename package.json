@@ -9,6 +9,7 @@
     "lint": "eslint src next.config.ts --ext .js,.jsx,.ts,.tsx",
     "typecheck": "tsc --noEmit",
     "test:phase11": "node scripts/phase11-checks.mjs",
+    "test:v4:real": "node scripts/final-v4-real-world.mjs",
     "prelaunch:scorecard": "node scripts/prelaunch-scorecard.mjs"
   },
   "dependencies": {

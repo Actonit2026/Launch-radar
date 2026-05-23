@@ -46,6 +46,7 @@ import {
   type UsageEventType,
 } from "@/lib/usage";
 import { createDefaultMonitoredPages } from "@/lib/urls";
+import { isMasterAdminEmail } from "@/lib/master-admin";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -860,6 +861,7 @@ export async function scanMonitoredPagesForUser(
   options: {
     usageEventType?: Extract<UsageEventType, "manual_scan" | "scheduled_scan">;
     recordZeroUsage?: boolean;
+    ignoreScanInterval?: boolean;
   } = {},
 ): Promise<ScannerResult<ScanResult>> {
   const { data: competitors, error: competitorsError } = await supabase
@@ -913,14 +915,19 @@ export async function scanMonitoredPagesForUser(
   }
 
   const allPages = monitoredPages ?? [];
-  const minimumCheckedAt = Date.now() - (profile?.scan_interval_hours ?? 24) * 60 * 60 * 1000;
-  const pages = allPages.filter((page) => {
-    if (!page.last_checked_at) {
-      return true;
-    }
+  const shouldBypassScanInterval =
+    options.ignoreScanInterval || isMasterAdminEmail(profile?.email);
+  const minimumCheckedAt =
+    Date.now() - (profile?.scan_interval_hours ?? 24) * 60 * 60 * 1000;
+  const pages = shouldBypassScanInterval
+    ? allPages
+    : allPages.filter((page) => {
+        if (!page.last_checked_at) {
+          return true;
+        }
 
-    return new Date(page.last_checked_at).getTime() <= minimumCheckedAt;
-  });
+        return new Date(page.last_checked_at).getTime() <= minimumCheckedAt;
+      });
   const competitorById = new Map(
     (competitors ?? []).map((competitor) => [
       competitor.id,

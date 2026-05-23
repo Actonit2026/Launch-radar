@@ -6,7 +6,7 @@ import { formatDateTime } from "@/lib/format";
 export default async function Home() {
   const user = await getCurrentUser();
   const href = user ? "/dashboard" : "/signup";
-  const demoCache = getDemoExamples();
+  const demoCache = await getDemoExamples();
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-6xl flex-col gap-12 px-6 py-12">
@@ -83,7 +83,7 @@ export default async function Home() {
             </p>
             <p className="text-xs text-ink/55">
               {demoCache.updated_at
-                ? `Updated ${formatDateTime(demoCache.updated_at)}`
+                ? `Last verified: ${formatDateTime(demoCache.updated_at)}`
                 : "Waiting for first refresh"}
             </p>
           </div>
@@ -125,16 +125,25 @@ export default async function Home() {
                   </p>
                 </div>
                 <p className="mt-3 text-xs leading-5 text-ink/60">
-                  Verified from public page.{" "}
+                  Last verified:{" "}
+                  {example.last_verified_at
+                    ? formatDateTime(example.last_verified_at)
+                    : "pending"}
+                </p>
+                <details className="mt-3 rounded-md bg-paper p-3 text-xs text-ink/65">
+                  <summary className="cursor-pointer font-semibold text-ink">
+                    View evidence
+                  </summary>
+                  <p className="mt-2 leading-5">{example.evidence_text}</p>
                   <a
                     href={example.source_url}
                     target="_blank"
                     rel="noreferrer"
-                    className="font-semibold text-moss hover:text-moss/80"
+                    className="mt-2 inline-flex font-semibold text-moss hover:text-moss/80"
                   >
                     Source
                   </a>
-                </p>
+                </details>
               </article>
             ))}
           </div>

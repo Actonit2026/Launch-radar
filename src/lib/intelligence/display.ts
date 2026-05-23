@@ -276,10 +276,11 @@ function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSection
       typeof reliablePrice.normalizedValue.period === "string"
         ? reliablePrice.normalizedValue.period
         : null;
+    const hasKnownPeriod = period && period !== "unknown";
 
     return {
       status: "found",
-      text: period
+      text: hasKnownPeriod
         ? `Lowest visible price: ${reliablePrice.value}`
         : `Detected ${reliablePrice.value}, billing period unclear.`,
       fact: reliablePrice,
