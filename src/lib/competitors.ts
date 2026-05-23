@@ -17,6 +17,7 @@ import {
   type ScanDebugLogView,
 } from "@/lib/scan-debug";
 import { ensureUserProfile } from "@/lib/profiles";
+import { isMasterAdminEmail } from "@/lib/master-admin";
 import { planViewFromUser, type UserPlanView } from "@/lib/plans";
 import { createClient } from "@/lib/supabase/server";
 
@@ -38,6 +39,7 @@ export type DashboardData = {
   recentChanges: RecentChange[];
   plan: UserPlanView & {
     competitorCount: number;
+    masterAdmin: boolean;
   };
   stats: {
     competitors: number;
@@ -247,13 +249,19 @@ export async function getDashboardData(
     };
   });
 
+  const basePlan = planViewFromUser(profile);
+  const masterAdmin = isMasterAdminEmail(user.email);
+
   return {
     data: {
       competitors: competitorsWithPages,
       recentChanges,
       plan: {
-        ...planViewFromUser(profile),
+        ...basePlan,
+        label: masterAdmin ? "Master admin" : basePlan.label,
+        competitorLimit: masterAdmin ? 999 : basePlan.competitorLimit,
         competitorCount: competitorRows.length,
+        masterAdmin,
       },
       stats: {
         competitors: competitorRows.length,

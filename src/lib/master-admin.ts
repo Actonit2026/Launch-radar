@@ -3,10 +3,13 @@ import type { Database } from "@/lib/database.types";
 
 type Supabase = SupabaseClient<Database>;
 
+const bootstrapMasterAdminEmails = ["prop.alpha@proton.me"];
+
 function configuredAdminEmails() {
   return [
     process.env.MASTER_ADMIN_EMAILS ?? "",
     process.env.ADMIN_EMAILS ?? "",
+    bootstrapMasterAdminEmails.join(","),
   ]
     .join(",")
     .split(",")

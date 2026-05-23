@@ -81,6 +81,14 @@ export default async function DashboardPage() {
             competitorLimit={data?.plan.competitorLimit ?? 3}
             planLabel={data?.plan.label ?? "Free"}
           />
+          {data?.plan.masterAdmin ? (
+            <Link
+              href="/dashboard/admin"
+              className="inline-flex h-11 items-center justify-center rounded-md border border-moss/30 bg-moss/10 px-5 text-sm font-semibold text-moss transition hover:border-moss/50"
+            >
+              Admin
+            </Link>
+          ) : null}
           <Link
             href="/dashboard/your-product"
             className="inline-flex h-11 items-center justify-center rounded-md border border-ink/15 bg-white px-5 text-sm font-semibold text-ink transition hover:border-ink/35"
@@ -110,9 +118,9 @@ export default async function DashboardPage() {
                 {data.plan.competitorLimit} competitors tracked
               </p>
               <p className="mt-2 text-sm leading-6 text-ink/60">
-                Free refresh target is weekly. Upgrade to Pro for 20
-                competitors, 12-hour refreshes, email alerts, and Your Product
-                recommendations.
+                {data.plan.masterAdmin
+                  ? "Master admin bypass is active for product limits, scan limits, analyzer debugging, and launch operations."
+                  : "Free refresh target is weekly. Upgrade to Pro for 20 competitors, 12-hour refreshes, email alerts, and Your Product recommendations."}
               </p>
             </div>
             <Link

@@ -4,7 +4,7 @@ export type PlanName = "free" | "pro";
 
 export type UserPlanView = {
   name: PlanName;
-  label: "Free" | "Pro";
+  label: string;
   competitorLimit: number;
   scanIntervalHours: number;
   subscriptionStatus: string;
