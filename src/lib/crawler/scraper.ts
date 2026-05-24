@@ -14,9 +14,11 @@ import {
 export type ScrapedPage = {
   requestedUrl: string;
   finalUrl: string;
+  redirected?: boolean;
   title: string;
   metaDescription: string;
   status: number | null;
+  fetchStatus?: "success" | "failed";
   ok: boolean;
   rawText: string;
   hash: string;
@@ -26,6 +28,17 @@ export type ScrapedPage = {
   javascriptHeavy?: boolean;
   warnings?: string[];
   error?: string;
+  errorType?:
+    | "not_found"
+    | "blocked"
+    | "timeout"
+    | "dns_error"
+    | "ssl_error"
+    | "server_error"
+    | "network_error"
+    | "empty_content"
+    | "javascript_heavy"
+    | "unknown_error";
 };
 
 const blockedResourceTypes = new Set(["font", "image", "media"]);
@@ -38,19 +51,60 @@ export function hashText(value: string) {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function failedScrape(url: string, error: unknown): ScrapedPage {
+function errorTypeFor(error: unknown, status?: number | null): NonNullable<ScrapedPage["errorType"]> {
+  const message = error instanceof Error ? error.message : String(error);
+
+  if (status === 404 || status === 410) return "not_found";
+  if (status === 401 || status === 403) return "blocked";
+  if (status && status >= 500) return "server_error";
+  if (/robots|forbidden|blocked|403/i.test(message)) return "blocked";
+  if (/abort|timeout/i.test(message)) return "timeout";
+  if (/ENOTFOUND|dns|getaddrinfo|not found/i.test(message)) return "dns_error";
+  if (/certificate|ssl|tls/i.test(message)) return "ssl_error";
+  if (/fetch failed|network|ECONN|EAI_AGAIN/i.test(message)) return "network_error";
+
+  return "unknown_error";
+}
+
+function failedScrape(url: string, error: unknown, status: number | null = null): ScrapedPage {
   return {
     requestedUrl: url,
     finalUrl: url,
+    redirected: false,
     title: "",
     metaDescription: "",
-    status: null,
+    status,
+    fetchStatus: "failed",
     ok: false,
     rawText: "",
     hash: hashText(""),
     links: [],
     rendering: "static",
     error: error instanceof Error ? error.message : "Unknown scrape error.",
+    errorType: errorTypeFor(error, status),
+  };
+}
+
+function attachFetchMetadata(
+  pageModel: PageModel,
+  {
+    finalUrl,
+    status,
+    fetchStatus,
+    redirected,
+  }: {
+    finalUrl: string;
+    status: number | null;
+    fetchStatus: "success" | "failed";
+    redirected: boolean;
+  },
+) {
+  return {
+    ...pageModel,
+    fetch_status: fetchStatus,
+    http_status: status,
+    final_url: finalUrl,
+    redirected,
   };
 }
 
@@ -131,8 +185,8 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
         ...failedScrape(
           url,
           new Error("This page disallows automated public analysis via robots.txt."),
+          403,
         ),
-        status: 403,
       };
     }
 
@@ -147,17 +201,25 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
     const html = await response.text();
     const finalUrl = response.url || url;
     const rawText = extractMeaningfulText(html);
-    const pageModel = buildPageModel(html, finalUrl);
     const status = response.status;
+    const fetchStatus = response.ok ? "success" : "failed";
+    const pageModel = attachFetchMetadata(buildPageModel(html, finalUrl), {
+      finalUrl,
+      status,
+      fetchStatus,
+      redirected: finalUrl !== url,
+    });
     const javascriptHeavy = appearsJavaScriptHeavy(html, rawText);
     const warnings = javascriptHeavy ? [javascriptHeavyWarning()] : [];
 
     return {
       requestedUrl: url,
       finalUrl,
+      redirected: finalUrl !== url,
       title: extractPageTitle(html),
       metaDescription: extractMetaDescription(html),
       status,
+      fetchStatus,
       ok: response.ok && rawText.length > 0 && !javascriptHeavy,
       rawText,
       hash: hashText(rawText),
@@ -172,7 +234,9 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
             error: javascriptHeavy
               ? javascriptHeavyWarning()
               : "No meaningful text extracted.",
+            errorType: javascriptHeavy ? "javascript_heavy" : "empty_content",
           }),
+      ...(!response.ok ? { errorType: errorTypeFor(`HTTP ${status}`, status) } : {}),
     };
   } catch (error) {
     return failedScrape(url, new Error(userFriendlyBlockedMessage(error)));
@@ -227,21 +291,32 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
         const html = await page.content();
         const finalUrl = page.url();
         const rawText = extractMeaningfulText(html);
-        const pageModel = buildPageModel(html, finalUrl);
         const status = response?.status() ?? null;
+        const fetchStatus = status === null || status < 400 ? "success" : "failed";
+        const pageModel = attachFetchMetadata(buildPageModel(html, finalUrl), {
+          finalUrl,
+          status,
+          fetchStatus,
+          redirected: finalUrl !== url,
+        });
 
         results.push({
           requestedUrl: url,
           finalUrl,
+          redirected: finalUrl !== url,
           title: await page.title(),
           metaDescription: extractMetaDescription(html),
           status,
+          fetchStatus,
           ok: (status === null || status < 400) && rawText.length > 0,
           rawText,
           hash: hashText(rawText),
           links: extractPageLinks(html, finalUrl),
           pageModel,
           rendering: "browser",
+          ...((status !== null && status >= 400)
+            ? { errorType: errorTypeFor(`HTTP ${status}`, status) }
+            : {}),
         });
       } catch (error) {
         results.push(failedScrape(url, new Error(userFriendlyBlockedMessage(error))));

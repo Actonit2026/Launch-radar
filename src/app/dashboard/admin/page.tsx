@@ -55,6 +55,12 @@ export default async function AdminPage() {
           >
             Analyzer debug
           </Link>
+          <Link
+            href="/admin/demo-examples"
+            className="inline-flex h-10 items-center justify-center rounded-md border border-moss/30 bg-moss/10 px-4 text-sm font-semibold text-moss"
+          >
+            Demo examples
+          </Link>
         </div>
       </section>
 

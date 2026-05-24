@@ -11,6 +11,7 @@ import { getCurrentUser } from "@/lib/auth";
 import {
   getDashboardData,
   type DashboardCompetitor,
+  type DashboardData,
 } from "@/lib/competitors";
 import { formatDateTime, formatPageType } from "@/lib/format";
 import { buildIntelligenceDisplay } from "@/lib/intelligence/display";
@@ -45,6 +46,139 @@ function setupStatusText(competitor: DashboardCompetitor) {
   return "Setting up your first scan...";
 }
 
+function DashboardActionPanel({ data }: { data: DashboardData }) {
+  const addCompetitor = (
+    <AddCompetitorDialog
+      competitorCount={data.plan.competitorCount}
+      competitorLimit={data.plan.competitorLimit}
+      planLabel={data.plan.label}
+    />
+  );
+
+  if (!data.stats.competitors) {
+    return (
+      <section className="rounded-lg border border-moss/20 bg-white p-5 shadow-soft">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
+              Next best action
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-ink">
+              Add your first competitor
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-ink/60">
+              Paste a public SaaS URL to create a baseline and verified snapshot.
+            </p>
+          </div>
+          {addCompetitor}
+        </div>
+      </section>
+    );
+  }
+
+  if (data.product.topRecommendation) {
+    return (
+      <section className="rounded-lg border border-moss/20 bg-white p-5 shadow-soft">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
+              Next best action
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-ink">
+              Act on the top recommendation
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/60">
+              {data.product.topRecommendation.title}
+            </p>
+          </div>
+          <Link
+            href="/dashboard/your-product"
+            className="inline-flex h-11 items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+          >
+            Review recommendation
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  if (data.recentChanges[0]) {
+    const change = data.recentChanges[0];
+
+    return (
+      <section className="rounded-lg border border-moss/20 bg-white p-5 shadow-soft">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
+              Next best action
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-ink">
+              Review the latest meaningful change
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-ink/60">
+              {change.competitor.name}:{" "}
+              {change.diff_summary.split(/(?<=[.!?])\s+/)[0]}
+            </p>
+          </div>
+          <Link
+            href={`/dashboard/competitors/${change.competitor.id}`}
+            className="inline-flex h-11 items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+          >
+            Review change
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  if (!data.product.exists) {
+    return (
+      <section className="rounded-lg border border-moss/20 bg-white p-5 shadow-soft">
+        <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
+              Next best action
+            </p>
+            <h2 className="mt-2 text-xl font-semibold text-ink">
+              Add your product for recommendations
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-ink/60">
+              Compare your public page against tracked competitors to find
+              evidence-backed improvements.
+            </p>
+          </div>
+          <Link
+            href="/dashboard/your-product"
+            className="inline-flex h-11 items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+          >
+            Add your product
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-lg border border-moss/20 bg-white p-5 shadow-soft">
+      <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
+            Market pulse
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-ink">
+            No meaningful changes detected this week
+          </h2>
+          <p className="mt-2 text-sm leading-6 text-ink/60">
+            Run a pulse check when you want a fresh read, or add another
+            competitor for broader coverage.
+          </p>
+        </div>
+        <RunScanButton />
+      </div>
+    </section>
+  );
+}
+
 export default async function DashboardPage() {
   if (!isSupabaseConfigured()) {
     return <SetupNeeded message={supabaseConfigMessage} />;
@@ -75,12 +209,6 @@ export default async function DashboardPage() {
           <p className="mt-2 text-sm text-ink/65">{user.email}</p>
         </div>
         <div className="flex flex-wrap gap-3">
-          <RunScanButton />
-          <AddCompetitorDialog
-            competitorCount={data?.plan.competitorCount ?? 0}
-            competitorLimit={data?.plan.competitorLimit ?? 3}
-            planLabel={data?.plan.label ?? "Free"}
-          />
           {data?.plan.masterAdmin ? (
             <Link
               href="/dashboard/admin"
@@ -132,6 +260,8 @@ export default async function DashboardPage() {
           </div>
         </section>
       ) : null}
+
+      {data ? <DashboardActionPanel data={data} /> : null}
 
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-lg border border-ink/10 bg-white p-5">

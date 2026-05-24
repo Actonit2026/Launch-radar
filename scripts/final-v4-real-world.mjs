@@ -27,6 +27,7 @@ const sourceFiles = [
   "src/lib/intelligence/ctas.ts",
   "src/lib/intelligence/features.ts",
   "src/lib/intelligence/changelog.ts",
+  "src/lib/intelligence/models.ts",
   "src/lib/intelligence/analyze.ts",
 ].map((file) => path.join(rootDir, file));
 

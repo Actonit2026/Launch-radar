@@ -30,6 +30,7 @@ const sourceFiles = [
   "src/lib/intelligence/ctas.ts",
   "src/lib/intelligence/features.ts",
   "src/lib/intelligence/changelog.ts",
+  "src/lib/intelligence/models.ts",
   "src/lib/intelligence/analyze.ts",
   "src/lib/ai/config.ts",
   "src/lib/ai/intelligence-summary.ts",
@@ -243,14 +244,22 @@ function scrapedPage({
   rawText,
   links = [],
   pageModel,
+  status = 200,
+  ok = true,
+  error = null,
+  errorType = null,
+  fetchStatus = ok ? "success" : "failed",
 }) {
   return {
     requestedUrl: url,
     finalUrl: url,
     title,
     metaDescription: `${title} meta`,
-    status: 200,
-    ok: true,
+    status,
+    ok,
+    error,
+    errorType,
+    fetchStatus,
     rawText,
     hash: `hash:${title}:${rawText.length}`,
     links,
@@ -504,6 +513,34 @@ try {
     fieldsHaveEvidence(pricing.facts);
   });
 
+  check("builds rich pricing and CTA models from multiple visible plans", () => {
+    const page = pageFromHtml({
+      title: "Packages",
+      pageType: "pricing",
+      body: [
+        "<section class=\"pricing\">",
+        "<article><h2>Free</h2><p>Free forever</p><a>Start free</a></article>",
+        "<article><h2>Starter</h2><p>Starter €9 per month</p><p>100 projects/month</p><a>Get started</a></article>",
+        "<article><h2>Business</h2><p>Business $49 per user/month billed annually</p><a>Upgrade</a></article>",
+        "<article><h2>Enterprise</h2><p>Contact sales</p><a>Book demo</a></article>",
+        "</section>",
+      ].join(""),
+    });
+    const pricingModel = page.models.pricing;
+    const ctaModel = page.models.cta;
+
+    assert.equal(pricingModel.pricing_visibility, "partially_public");
+    assert.equal(pricingModel.pricing_model, "mixed");
+    assert.ok(pricingModel.plans.length >= 4, "all visible plans should be modeled");
+    assert.ok(pricingModel.plans.some((plan) => plan.name === "Free" && plan.price === 0));
+    assert.ok(pricingModel.plans.some((plan) => plan.name === "Starter" && plan.price === 9));
+    assert.ok(pricingModel.plans.some((plan) => plan.billing_type === "seat_based"));
+    assert.ok(pricingModel.plans.some((plan) => plan.billing_type === "contact_sales"));
+    assert.ok(pricingModel.evidence.length >= 3);
+    assert.equal(ctaModel.funnel_intent, "hybrid");
+    assert.ok(ctaModel.cta_groups.some((group) => group.group === "upgrade/buy"));
+  });
+
   check("detects contact-sales-only pricing without inventing a price", () => {
     const pricing = analyzePricing(
       scrapedPage({
@@ -540,7 +577,7 @@ try {
     assert.equal(pricing.lowestPrice.normalized_value.amount, 29);
   });
 
-  check("detects plan-selector pricing with unclear billing period", () => {
+  check("detects plan-selector pricing with weekly limit context", () => {
     const productHtml = html({
       title: "PropAI - Freelance Proposal Generator That Matches Your Voice",
       links: '<nav><a href="/login">Login to your dashboard</a></nav>',
@@ -565,7 +602,7 @@ try {
     assert.equal(page.pricing.status, "found");
     assert.equal(page.pricing.lowestPrice.normalized_value.amount, 5);
     assert.equal(page.pricing.lowestPrice.normalized_value.currency, "EUR");
-    assert.equal(page.pricing.lowestPrice.normalized_value.period, "unknown");
+    assert.equal(page.pricing.lowestPrice.normalized_value.period, "week");
     assert.match(page.pricing.lowestPrice.evidence_text, /\u20AC5|Get Plus/i);
     assert.match(page.positioning.homepageHeadline.value, /proposal generator/i);
     assert.doesNotMatch(page.positioning.homepageHeadline.value, /login|dashboard/i);
@@ -950,6 +987,43 @@ try {
       "changelog",
     );
     assert.ok(changelog.meaningfulChanges.some((change) => change.changeType === "new_changelog_entry"));
+  });
+
+  check("previously live pricing page returning 404 creates an availability change", () => {
+    const previous = buildSnapshotAnalysis({
+      pageType: "pricing",
+      scrape: scrapedPage({
+        url: "https://example.com/pricing",
+        rawText: "Pricing\nStarter plan $19/month\nStart free",
+      }),
+    });
+    const current = buildSnapshotAnalysis({
+      pageType: "pricing",
+      scrape: scrapedPage({
+        url: "https://example.com/pricing",
+        rawText: "Not found",
+        status: 404,
+        ok: false,
+        error: "HTTP 404",
+        errorType: "not_found",
+        fetchStatus: "failed",
+      }),
+    });
+    const result = compareSnapshotAnalyses({
+      previousRawHash: previous.rawContentHash,
+      previousCanonicalHash: previous.canonicalContentHash,
+      previousStructuredFactsHash: previous.structuredFactsHash,
+      previousFacts: previous.structuredFacts,
+      previousCanonicalContent: previous.canonicalContent,
+      current,
+    });
+    const availability = result.meaningfulChanges.find(
+      (change) => change.category === "availability",
+    );
+
+    assert.ok(availability, "availability change should be created");
+    assert.equal(availability.severity, "high");
+    assert.match(availability.summary, /pricing page is no longer accessible/i);
   });
 
   let passed = 0;

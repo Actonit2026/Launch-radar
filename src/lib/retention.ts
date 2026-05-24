@@ -4,7 +4,11 @@ import { planViewFromUser } from "@/lib/plans";
 
 type Supabase = SupabaseClient<Database>;
 
-function retentionLimit(planName: "free" | "pro") {
+function retentionLimit(planName: "free" | "pro" | "business") {
+  if (planName === "business") {
+    return 60;
+  }
+
   return planName === "pro" ? 30 : 15;
 }
 

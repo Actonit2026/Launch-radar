@@ -1,6 +1,6 @@
 import type { Database } from "@/lib/database.types";
 
-export type PlanName = "free" | "pro";
+export type PlanName = "free" | "pro" | "business";
 
 export type UserPlanView = {
   name: PlanName;
@@ -27,6 +27,11 @@ const planDefaults: Record<
     competitorLimit: 20,
     scanIntervalHours: 12,
   },
+  business: {
+    label: "Business",
+    competitorLimit: 999,
+    scanIntervalHours: 6,
+  },
 };
 
 export function planViewFromUser(profile: Pick<
@@ -37,7 +42,12 @@ export function planViewFromUser(profile: Pick<
   | "subscription_status"
   | "current_period_end"
 > | null): UserPlanView {
-  const name = profile?.plan === "pro" ? "pro" : "free";
+  const name =
+    profile?.plan === "business"
+      ? "business"
+      : profile?.plan === "pro"
+        ? "pro"
+        : "free";
   const defaults = planDefaults[name];
 
   return {

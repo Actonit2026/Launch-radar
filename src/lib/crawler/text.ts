@@ -32,8 +32,18 @@ export type PageBlock = {
   index: number;
 };
 
+export type PageModelDebug = {
+  block_count: number;
+  classification_counts: Record<PageBlockType, number>;
+  ignored_block_types: PageBlockType[];
+};
+
 export type PageModel = {
   url: string;
+  fetch_status: "success" | "failed" | "unknown";
+  http_status: number | null;
+  final_url: string;
+  redirected: boolean;
   title: string;
   metaDescription: string;
   meta_description: string;
@@ -66,11 +76,10 @@ export type PageModel = {
   blocks: PageBlock[];
   visibleContent: string;
   visible_text: string;
-  debug: {
-    block_count: number;
-    classification_counts: Record<PageBlockType, number>;
-    ignored_block_types: PageBlockType[];
-  };
+  jsonLd: unknown[];
+  json_ld: unknown[];
+  debug: PageModelDebug;
+  extraction_debug: PageModelDebug;
 };
 
 const noiseSelectors = [
@@ -374,6 +383,20 @@ function classificationCounts(blocks: PageBlock[]) {
   return counts;
 }
 
+function jsonLdBlocks($: cheerio.CheerioAPI) {
+  return $("script[type='application/ld+json']")
+    .map((_, element) => {
+      try {
+        return JSON.parse($(element).text());
+      } catch {
+        return null;
+      }
+    })
+    .get()
+    .filter(Boolean)
+    .slice(0, 5);
+}
+
 function classifyBlock({
   element,
   attrs,
@@ -460,12 +483,13 @@ function shouldKeepBlock(block: PageBlock) {
 export function buildPageModel(html: string, baseUrl: string): PageModel {
   const $ = cheerio.load(html);
 
-  $(modelNoiseSelectors.join(",")).remove();
-
   const title = extractPageTitle(html);
   const metaDescription = extractMetaDescription(html);
   const ogTitle = ogValue($, "og:title");
   const ogDescription = ogValue($, "og:description");
+  const jsonLd = jsonLdBlocks($);
+
+  $(modelNoiseSelectors.join(",")).remove();
   const h1 = normalizeSegment($("h1").first().text()) || null;
   const rawElements = $("nav,footer,header,main > section,main > article,main > div,section,article,form,dialog,[role='dialog'],[class*='modal'],[id*='modal'],[class*='pricing'],[id*='pricing'],[class*='price'],[id*='price'],[class*='plan'],[id*='plan'],[class*='feature'],[id*='feature'],[class*='hero'],[id*='hero'],[class*='cta'],[id*='cta'],[class*='changelog'],[id*='changelog'],table")
     .toArray()
@@ -539,8 +563,18 @@ export function buildPageModel(html: string, baseUrl: string): PageModel {
     .filter(Boolean)
     .join("\n");
 
+  const debug = {
+    block_count: blocks.length,
+    classification_counts: classificationCounts(blocks),
+    ignored_block_types: ["nav", "footer", "auth"] as PageBlockType[],
+  };
+
   return {
     url: baseUrl,
+    fetch_status: "unknown",
+    http_status: null,
+    final_url: baseUrl,
+    redirected: false,
     title,
     metaDescription,
     meta_description: metaDescription,
@@ -573,11 +607,10 @@ export function buildPageModel(html: string, baseUrl: string): PageModel {
     blocks,
     visibleContent,
     visible_text: visibleContent,
-    debug: {
-      block_count: blocks.length,
-      classification_counts: classificationCounts(blocks),
-      ignored_block_types: ["nav", "footer", "auth"],
-    },
+    jsonLd,
+    json_ld: jsonLd,
+    debug,
+    extraction_debug: debug,
   };
 }
 

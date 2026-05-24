@@ -13,7 +13,7 @@ export type Database = {
         Row: {
           id: string;
           email: string;
-          plan: "free" | "pro";
+          plan: "free" | "pro" | "business";
           competitor_limit: number;
           scan_interval_hours: number;
           subscription_status: string;
@@ -25,7 +25,7 @@ export type Database = {
         Insert: {
           id: string;
           email: string;
-          plan?: "free" | "pro";
+          plan?: "free" | "pro" | "business";
           competitor_limit?: number;
           scan_interval_hours?: number;
           subscription_status?: string;
@@ -37,7 +37,7 @@ export type Database = {
         Update: {
           id?: string;
           email?: string;
-          plan?: "free" | "pro";
+          plan?: "free" | "pro" | "business";
           competitor_limit?: number;
           scan_interval_hours?: number;
           subscription_status?: string;
@@ -224,6 +224,14 @@ export type Database = {
           url: string;
           page_type: Database["public"]["Enums"]["page_type"];
           last_checked_at: string | null;
+          last_fetch_status: string | null;
+          last_http_status: number | null;
+          last_error_type: string | null;
+          last_error_message: string | null;
+          last_success_at: string | null;
+          last_failure_at: string | null;
+          consecutive_failures: number;
+          availability_status: string;
           created_at: string;
         };
         Insert: {
@@ -232,6 +240,14 @@ export type Database = {
           url: string;
           page_type: Database["public"]["Enums"]["page_type"];
           last_checked_at?: string | null;
+          last_fetch_status?: string | null;
+          last_http_status?: number | null;
+          last_error_type?: string | null;
+          last_error_message?: string | null;
+          last_success_at?: string | null;
+          last_failure_at?: string | null;
+          consecutive_failures?: number;
+          availability_status?: string;
           created_at?: string;
         };
         Update: {
@@ -240,6 +256,14 @@ export type Database = {
           url?: string;
           page_type?: Database["public"]["Enums"]["page_type"];
           last_checked_at?: string | null;
+          last_fetch_status?: string | null;
+          last_http_status?: number | null;
+          last_error_type?: string | null;
+          last_error_message?: string | null;
+          last_success_at?: string | null;
+          last_failure_at?: string | null;
+          consecutive_failures?: number;
+          availability_status?: string;
           created_at?: string;
         };
         Relationships: [
@@ -262,6 +286,12 @@ export type Database = {
           canonical_content_hash: string | null;
           structured_facts_hash: string | null;
           structured_facts_json: Json;
+          fetch_status: string | null;
+          http_status: number | null;
+          final_url: string | null;
+          error_type: string | null;
+          error_message: string | null;
+          was_successful: boolean | null;
           created_at: string;
         };
         Insert: {
@@ -273,6 +303,12 @@ export type Database = {
           canonical_content_hash?: string | null;
           structured_facts_hash?: string | null;
           structured_facts_json?: Json;
+          fetch_status?: string | null;
+          http_status?: number | null;
+          final_url?: string | null;
+          error_type?: string | null;
+          error_message?: string | null;
+          was_successful?: boolean | null;
           created_at?: string;
         };
         Update: {
@@ -284,6 +320,12 @@ export type Database = {
           canonical_content_hash?: string | null;
           structured_facts_hash?: string | null;
           structured_facts_json?: Json;
+          fetch_status?: string | null;
+          http_status?: number | null;
+          final_url?: string | null;
+          error_type?: string | null;
+          error_message?: string | null;
+          was_successful?: boolean | null;
           created_at?: string;
         };
         Relationships: [
@@ -305,6 +347,10 @@ export type Database = {
           change_type: string | null;
           confidence_score: number | null;
           evidence_json: Json;
+          category: string | null;
+          old_value: Json | null;
+          new_value: Json | null;
+          evidence_text: string | null;
           created_at: string;
         };
         Insert: {
@@ -315,6 +361,10 @@ export type Database = {
           change_type?: string | null;
           confidence_score?: number | null;
           evidence_json?: Json;
+          category?: string | null;
+          old_value?: Json | null;
+          new_value?: Json | null;
+          evidence_text?: string | null;
           created_at?: string;
         };
         Update: {
@@ -325,6 +375,10 @@ export type Database = {
           change_type?: string | null;
           confidence_score?: number | null;
           evidence_json?: Json;
+          category?: string | null;
+          old_value?: Json | null;
+          new_value?: Json | null;
+          evidence_text?: string | null;
           created_at?: string;
         };
         Relationships: [

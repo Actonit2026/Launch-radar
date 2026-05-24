@@ -1,11 +1,19 @@
 import Link from "next/link";
 import {
+  createAnnualBusinessCheckoutSessionAction,
   createAnnualProCheckoutSessionAction,
   createBillingPortalSessionAction,
+  createBusinessCheckoutSessionAction,
   createProCheckoutSessionAction,
 } from "@/app/pricing/actions";
 import { getCurrentUser } from "@/lib/auth";
-import { hasAnnualProPriceId, isStripeConfigured } from "@/lib/stripe";
+import {
+  hasAnnualBusinessPriceId,
+  hasAnnualProPriceId,
+  hasBusinessPriceId,
+  isStripeConfigured,
+  isStripeSecretConfigured,
+} from "@/lib/stripe";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata = {
@@ -17,6 +25,9 @@ export default async function PricingPage() {
   const dashboardHref = user ? "/dashboard" : "/signup";
   const stripeReady = isStripeConfigured();
   const annualReady = stripeReady && hasAnnualProPriceId();
+  const stripeSecretReady = isStripeSecretConfigured();
+  const businessReady = stripeSecretReady && hasBusinessPriceId();
+  const businessAnnualReady = stripeSecretReady && hasAnnualBusinessPriceId();
   const supabase = user ? await createClient() : null;
   const { data: profile } = user && supabase
     ? await supabase
@@ -25,7 +36,8 @@ export default async function PricingPage() {
         .eq("id", user.id)
         .maybeSingle()
     : { data: null };
-  const isPro = profile?.plan === "pro";
+  const isPro = profile?.plan === "pro" || profile?.plan === "business";
+  const isBusiness = profile?.plan === "business";
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-5xl flex-col gap-8 px-6 py-12">
@@ -37,16 +49,17 @@ export default async function PricingPage() {
           Start useful, upgrade when monitoring matters.
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-7 text-ink/65">
-          Free users can build a trustworthy baseline. Pro is designed for
-          ongoing competitor monitoring, alerts, and product comparison.
+          Free users can build a trustworthy baseline. Pro monitors serious
+          competitors. Business scales competitive intelligence within fair-use
+          limits.
         </p>
       </section>
 
-      <section className="grid gap-5 md:grid-cols-2">
+      <section className="grid gap-5 lg:grid-cols-3">
         <article className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
           <h2 className="text-2xl font-semibold text-ink">Free</h2>
           <p className="mt-3 text-4xl font-semibold text-ink">EUR 0</p>
-          <p className="mt-2 text-sm text-ink/55">For the first baseline.</p>
+          <p className="mt-2 text-sm text-ink/55">Explore your market.</p>
           <ul className="mt-6 space-y-3 text-sm leading-6 text-ink/70">
             <li>Track up to 3 competitors</li>
             <li>Initial scan on add</li>
@@ -79,7 +92,11 @@ export default async function PricingPage() {
             <li>Email alerts for meaningful changes</li>
             <li>Your Product comparison recommendations</li>
           </ul>
-          {isPro && profile?.billing_customer_id ? (
+          {isBusiness ? (
+            <p className="mt-6 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
+              Included in your Business plan.
+            </p>
+          ) : isPro && profile?.billing_customer_id ? (
             <form action={createBillingPortalSessionAction}>
               <button
                 type="submit"
@@ -125,6 +142,75 @@ export default async function PricingPage() {
               className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
             >
               Sign up to upgrade
+            </Link>
+          )}
+        </article>
+
+        <article className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-2xl font-semibold text-ink">Business</h2>
+            <span className="rounded-full bg-ink px-3 py-1 text-xs font-semibold text-white">
+              Fair use
+            </span>
+          </div>
+          <p className="mt-3 text-4xl font-semibold text-ink">EUR 49</p>
+          <p className="mt-2 text-sm text-ink/55">per month</p>
+          <p className="mt-2 rounded-md bg-paper px-3 py-2 text-sm font-semibold text-ink/65">
+            Annual: EUR 490/year, about two months free.
+          </p>
+          <ul className="mt-6 space-y-3 text-sm leading-6 text-ink/70">
+            <li>Unlimited competitors within fair use</li>
+            <li>6-hour refresh target and priority queue</li>
+            <li>Unlimited own product analysis within fair use</li>
+            <li>Browser rendering allowance and AI-enhanced summaries</li>
+            <li>Weekly digest, shareable reports, and exports when available</li>
+          </ul>
+          {isBusiness && profile?.billing_customer_id ? (
+            <form action={createBillingPortalSessionAction}>
+              <button
+                type="submit"
+                className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md border border-ink bg-white px-5 text-sm font-semibold text-ink transition hover:bg-paper"
+              >
+                Manage billing
+              </button>
+            </form>
+          ) : user && businessReady ? (
+            <div className="mt-6 grid gap-3">
+              <form action={createBusinessCheckoutSessionAction}>
+                <button
+                  type="submit"
+                  className="inline-flex h-11 w-full items-center justify-center rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-ink/90"
+                >
+                  Start Business
+                </button>
+              </form>
+              {businessAnnualReady ? (
+                <form action={createAnnualBusinessCheckoutSessionAction}>
+                  <button
+                    type="submit"
+                    className="inline-flex h-11 w-full items-center justify-center rounded-md border border-ink bg-white px-5 text-sm font-semibold text-ink transition hover:bg-paper"
+                  >
+                    Start Business annually
+                  </button>
+                </form>
+              ) : (
+                <p className="rounded-md bg-paper p-3 text-sm leading-6 text-ink/60">
+                  Annual checkout appears after
+                  STRIPE_BUSINESS_ANNUAL_PRICE_ID is configured.
+                </p>
+              )}
+            </div>
+          ) : user ? (
+            <p className="mt-6 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
+              Business checkout appears after STRIPE_BUSINESS_PRICE_ID is
+              configured.
+            </p>
+          ) : (
+            <Link
+              href="/signup"
+              className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-ink/90"
+            >
+              Sign up for Business
             </Link>
           )}
         </article>

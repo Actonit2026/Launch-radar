@@ -59,6 +59,10 @@ export function getUsageConfig() {
       "MAX_SCANS_PER_USER_PER_DAY_PRO",
       5,
     ),
+    maxScansPerUserPerDayBusiness: readNumberEnv(
+      "MAX_SCANS_PER_USER_PER_DAY_BUSINESS",
+      25,
+    ),
     maxAiCallsPerDayGlobal: readNumberEnvAny(
       ["MAX_AI_CALLS_GLOBAL_PER_DAY", "MAX_AI_CALLS_PER_DAY_GLOBAL"],
       50,
@@ -68,6 +72,10 @@ export function getUsageConfig() {
     maxBrowserRenderPerUserPerDay: readNumberEnv(
       "MAX_BROWSER_RENDER_PER_USER_PER_DAY",
       3,
+    ),
+    maxBrowserRenderPerBusinessPerDay: readNumberEnv(
+      "MAX_BROWSER_RENDER_PER_BUSINESS_PER_DAY",
+      12,
     ),
     maxBrowserRenderGlobalPerDay: readNumberEnv(
       "MAX_BROWSER_RENDER_GLOBAL_PER_DAY",
@@ -287,9 +295,11 @@ export async function canRunManualScan({
   ]);
   const config = getUsageConfig();
   const userLimit =
-    plan.name === "pro"
-      ? config.maxScansPerUserPerDayPro
-      : config.maxScansPerUserPerDayFree;
+    plan.name === "business"
+      ? config.maxScansPerUserPerDayBusiness
+      : plan.name === "pro"
+        ? config.maxScansPerUserPerDayPro
+        : config.maxScansPerUserPerDayFree;
 
   if (!budget.allowed) {
     return budget;
@@ -346,9 +356,11 @@ export async function canRunScheduledScan({
   ]);
   const config = getUsageConfig();
   const userLimit =
-    plan.name === "pro"
-      ? config.maxScansPerUserPerDayPro
-      : config.maxScansPerUserPerDayFree;
+    plan.name === "business"
+      ? config.maxScansPerUserPerDayBusiness
+      : plan.name === "pro"
+        ? config.maxScansPerUserPerDayPro
+        : config.maxScansPerUserPerDayFree;
 
   if (!budget.allowed) {
     return budget;
@@ -391,9 +403,11 @@ export async function canRunManualAnalysis({
   const plan = await getPlanForUser(supabase, userId);
   const config = getUsageConfig();
   const userLimit =
-    plan.name === "pro"
-      ? config.maxScansPerUserPerDayPro
-      : config.maxScansPerUserPerDayFree;
+    plan.name === "business"
+      ? config.maxScansPerUserPerDayBusiness
+      : plan.name === "pro"
+        ? config.maxScansPerUserPerDayPro
+        : config.maxScansPerUserPerDayFree;
   const userRuns = await countEvents({
     supabase,
     userId,
@@ -431,9 +445,11 @@ export async function canRunProductScan({
   const plan = await getPlanForUser(supabase, userId);
   const config = getUsageConfig();
   const userLimit =
-    plan.name === "pro"
-      ? config.maxScansPerUserPerDayPro
-      : config.maxScansPerUserPerDayFree;
+    plan.name === "business"
+      ? config.maxScansPerUserPerDayBusiness
+      : plan.name === "pro"
+        ? config.maxScansPerUserPerDayPro
+        : config.maxScansPerUserPerDayFree;
   const userRuns = await countEvents({
     supabase,
     userId,
@@ -538,10 +554,10 @@ export async function canRunBrowserRender({
   const config = getUsageConfig();
   const plan = await getPlanForUser(supabase, userId);
 
-  if (plan.name !== "pro") {
+  if (plan.name !== "pro" && plan.name !== "business") {
     return {
       allowed: false,
-      reason: "Browser rendering is reserved for Pro usage limits.",
+      reason: "Browser rendering is reserved for Pro and Business usage limits.",
     };
   }
 
@@ -571,7 +587,11 @@ export async function canRunBrowserRender({
     };
   }
 
-  if (userRenders >= config.maxBrowserRenderPerUserPerDay) {
+  const renderLimit = plan.name === "business"
+    ? config.maxBrowserRenderPerBusinessPerDay
+    : config.maxBrowserRenderPerUserPerDay;
+
+  if (userRenders >= renderLimit) {
     return {
       allowed: false,
       reason: USAGE_DEFERRED_MESSAGE,

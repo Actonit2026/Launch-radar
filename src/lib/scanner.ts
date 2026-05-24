@@ -121,6 +121,31 @@ function scrapeFailureMessage(scrape: ScrapedPage | undefined) {
   return "No meaningful text extracted.";
 }
 
+function availabilityUpdatePayload(
+  monitoredPage: MonitoredPage,
+  current: SnapshotAnalysis,
+) {
+  const now = new Date().toISOString();
+  const availability = current.intelligence.models.availability;
+  const successful = current.structuredFacts.availability.ok;
+
+  return {
+    last_checked_at: now,
+    last_fetch_status: successful ? "success" : "failed",
+    last_http_status: current.structuredFacts.availability.fetch_status,
+    last_error_type: successful ? null : availability.error_type,
+    last_error_message: successful
+      ? null
+      : availability.evidence[0]?.evidence_text ?? "Fetch failed.",
+    last_success_at: successful ? now : monitoredPage.last_success_at,
+    last_failure_at: successful ? monitoredPage.last_failure_at : now,
+    consecutive_failures: successful
+      ? 0
+      : (monitoredPage.consecutive_failures ?? 0) + 1,
+    availability_status: availability.status,
+  };
+}
+
 function isOptionalIntelligencePersistenceError(error: string | null) {
   return Boolean(
     error &&
@@ -237,6 +262,12 @@ async function saveAnalyzedSnapshot(
       canonical_content_hash: current.canonicalContentHash,
       structured_facts_hash: current.structuredFactsHash,
       structured_facts_json: snapshotFactsToJson(current.structuredFacts),
+      fetch_status: current.structuredFacts.availability.ok ? "success" : "failed",
+      http_status: current.structuredFacts.availability.fetch_status,
+      final_url: current.structuredFacts.availability.final_url,
+      error_type: current.structuredFacts.availability.error_type,
+      error_message: current.structuredFacts.availability.error_message,
+      was_successful: current.structuredFacts.availability.ok,
     });
 
     if (snapshotError) {
@@ -266,7 +297,7 @@ async function saveAnalyzedSnapshot(
 
   const { error: updateError } = await supabase
     .from("monitored_pages")
-    .update({ last_checked_at: new Date().toISOString() })
+    .update(availabilityUpdatePayload(monitoredPage, current))
     .eq("id", monitoredPage.id);
 
   if (updateError) {
@@ -343,6 +374,14 @@ async function saveBaselineSnapshot(
       canonical_content_hash: analysis.canonicalContentHash,
       structured_facts_hash: analysis.structuredFactsHash,
       structured_facts_json: snapshotFactsToJson(analysis.structuredFacts),
+      fetch_status: analysis.structuredFacts.availability.ok
+        ? "success"
+        : "failed",
+      http_status: analysis.structuredFacts.availability.fetch_status,
+      final_url: analysis.structuredFacts.availability.final_url,
+      error_type: analysis.structuredFacts.availability.error_type,
+      error_message: analysis.structuredFacts.availability.error_message,
+      was_successful: analysis.structuredFacts.availability.ok,
     });
 
     if (snapshotError) {
@@ -352,7 +391,7 @@ async function saveBaselineSnapshot(
 
   const { error: updateError } = await supabase
     .from("monitored_pages")
-    .update({ last_checked_at: new Date().toISOString() })
+    .update(availabilityUpdatePayload(monitoredPage, analysis))
     .eq("id", monitoredPage.id);
 
   if (updateError) {
@@ -449,16 +488,25 @@ export async function createInitialMonitoringSetup(
 
   let snapshotsCreated = 0;
   let intelligenceSnapshotCreated = false;
+  const fallbackScrapes =
+    discoveredPages.length === 0 ? await scrapePages([baseUrl]) : [];
+  const fallbackByUrl = byRequestedUrl(fallbackScrapes);
 
   for (const monitoredPage of monitoredPages ?? []) {
-    const scrape = discoveredByPageType.get(monitoredPage.page_type)?.scrape;
+    const scrape =
+      discoveredByPageType.get(monitoredPage.page_type)?.scrape ??
+      (monitoredPage.page_type === "homepage"
+        ? fallbackByUrl.get(baseUrl)
+        : undefined);
 
-    if (!scrape?.rawText) {
+    if (!scrape) {
       continue;
     }
 
     try {
-      const result = await saveSnapshot(supabase, monitoredPage, scrape);
+      const result = scrape.ok
+        ? await saveSnapshot(supabase, monitoredPage, scrape)
+        : await saveUnavailableSnapshot(supabase, monitoredPage, scrape);
       snapshotsCreated += result.snapshotCreated ? 1 : 0;
     } catch (error) {
       crawlWarning =
@@ -497,7 +545,7 @@ export async function createInitialMonitoringSetup(
     crawlWarning = intelligenceError;
   }
 
-  const firstScanFailed = snapshotsCreated === 0 && intelligencePages.length === 0;
+  const firstScanFailed = intelligencePages.length === 0;
   await updateCompetitorScanStatus({
     supabase,
     competitorId,

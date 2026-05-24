@@ -14,6 +14,7 @@ const ctaPatterns: Array<{ intent: CtaIntent; pattern: RegExp; score: number }> 
     { intent: "book_demo", pattern: /\b(?:book|get|schedule|request)\s+(?:a\s+)?demo\b/i, score: 0.9 },
     { intent: "contact_sales", pattern: /\b(?:contact|talk to)\s+sales\b/i, score: 0.88 },
     { intent: "start_trial", pattern: /\b(?:start|try|begin)\s+(?:free|trial)\b/i, score: 0.84 },
+    { intent: "upgrade_buy", pattern: /\b(?:upgrade|buy|subscribe|get plus|get pro|choose plan|try now)\b/i, score: 0.82 },
     { intent: "sign_up", pattern: /\b(?:sign up|signup|create account|join)\b/i, score: 0.78 },
     { intent: "get_started", pattern: /\bget started\b/i, score: 0.76 },
     { intent: "view_pricing", pattern: /\b(?:view|see|compare)?\s?pricing\b/i, score: 0.72 },

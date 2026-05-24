@@ -71,6 +71,7 @@ async function analyzeUrl(rawUrl: string) {
             : "failed",
         pricing: {
           status: analysis.pricing.status,
+          model: analysis.models.pricing,
           items: analysis.pricing.items,
           selected_item: analysis.pricing.selectedItem,
           debug_candidates: analysis.pricing.debugCandidates,
@@ -79,6 +80,8 @@ async function analyzeUrl(rawUrl: string) {
         ctas: analysis.ctas,
         features: analysis.features,
         changelog: analysis.changelog,
+        availability: analysis.models.availability,
+        models: analysis.models,
         warnings: analysis.warnings,
         debug: {
           page_model: scrape.pageModel ?? null,
@@ -175,9 +178,10 @@ export default async function AnalyzerAdminPage({
 
       {result && !("error" in result) ? (
         <>
-          <section className="grid gap-4 md:grid-cols-4">
+          <section className="grid gap-4 md:grid-cols-5">
             {[
               ["Status", result.finalObject.status],
+              ["Availability", result.analysis.models.availability.status],
               ["Pricing", result.analysis.pricing.status],
               ["CTA", result.analysis.ctas.primaryCta?.value ?? "None"],
               ["Features", String(result.analysis.features.features.length)],
@@ -200,12 +204,21 @@ export default async function AnalyzerAdminPage({
             </article>
             <article className="rounded-lg border border-ink/10 bg-white p-5">
               <h2 className="text-lg font-semibold text-ink">
-                Pricing candidates
+                Business models
               </h2>
               <div className="mt-4">
-                <JsonBlock value={result.analysis.pricing.debug} />
+                <JsonBlock value={result.analysis.models} />
               </div>
             </article>
+          </section>
+
+          <section className="rounded-lg border border-ink/10 bg-white p-5">
+            <h2 className="text-lg font-semibold text-ink">
+              Pricing candidates and rejected values
+            </h2>
+            <div className="mt-4">
+              <JsonBlock value={result.analysis.pricing.debug} />
+            </div>
           </section>
 
           <section className="rounded-lg border border-ink/10 bg-white p-5">

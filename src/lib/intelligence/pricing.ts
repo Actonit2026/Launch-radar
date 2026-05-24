@@ -60,6 +60,8 @@ const weakContactSalesPattern =
   /\b(?:contact us|book a demo|request a quote|request quote|sales-led pricing)\b/i;
 const monthlyPattern =
   /\b(?:\/\s?mo|\/\s?month|per month|monthly|billed monthly|paid monthly|month|mois|par mois)\b/i;
+const weeklyPattern =
+  /\b(?:\/\s?w|\/\s?wk|\/\s?week|per week|weekly|billed weekly|week|semaine|par semaine)\b/i;
 const yearlyPattern =
   /\b(?:\/\s?yr|\/\s?year|per year|annually|annual|yearly|billed annually|per annum)\b/i;
 const unitPattern = /\b(?:per|\/)\s?(?:user|seat)\b/i;
@@ -98,6 +100,10 @@ function periodForContext(context: string): NormalizedPrice["period"] {
     return "year";
   }
 
+  if (weeklyPattern.test(context)) {
+    return "week";
+  }
+
   return "unknown";
 }
 
@@ -106,20 +112,20 @@ function unitForContext(context: string): NormalizedPrice["unit"] | undefined {
 }
 
 function planForContext(context: string, heading?: string | null) {
-  const headingPlan =
-    heading && heading.length <= 48 && planPattern.test(heading)
-      ? heading.trim()
-      : null;
-
-  if (headingPlan) {
-    return headingPlan;
-  }
-
   const linePlan = context.match(
-    /\b(Free|Starter|Basic|Plus|Pro|Premium|Team|Business|Growth|Enterprise)\b/i,
+    /\b(Starter|Basic|Plus|Pro|Premium|Team|Business|Growth|Enterprise)\b/i,
   )?.[1];
 
-  return linePlan ?? undefined;
+  if (linePlan) {
+    return linePlan;
+  }
+
+  return heading &&
+    heading.length <= 48 &&
+    planPattern.test(heading) &&
+    !/^free$/i.test(heading.trim())
+    ? heading.trim()
+    : undefined;
 }
 
 function confidenceFromScore(score: number): Confidence {
@@ -146,6 +152,27 @@ function lineWindow(lines: string[], index: number) {
   return lines.slice(Math.max(0, index - 1), index + 2).join(" ");
 }
 
+function localContextForMatch(context: string, index: number, length: number) {
+  const lineStart = Math.max(0, context.lastIndexOf("\n", Math.max(0, index - 1)) + 1);
+  const lineEndIndex = context.indexOf("\n", index + length);
+  const lineEnd = lineEndIndex === -1 ? context.length : lineEndIndex;
+  const previousStart = Math.max(
+    0,
+    context.lastIndexOf("\n", Math.max(0, lineStart - 2)) + 1,
+  );
+  const nextEndIndex = context.indexOf("\n", lineEnd + 1);
+  const nextEnd = nextEndIndex === -1 ? context.length : nextEndIndex;
+  const local = context.slice(previousStart, nextEnd).replace(/\s+/g, " ").trim();
+
+  return local || context.slice(Math.max(0, index - 120), index + length + 120);
+}
+
+function candidatePeriod(localContext: string, fullContext: string) {
+  const localPeriod = periodForContext(localContext);
+
+  return localPeriod === "unknown" ? periodForContext(fullContext) : localPeriod;
+}
+
 function scoreCandidate({
   context,
   section,
@@ -170,7 +197,7 @@ function scoreCandidate({
     reasons.push("plan_context");
   }
 
-  if (monthlyPattern.test(context) || yearlyPattern.test(context)) {
+  if (weeklyPattern.test(context) || monthlyPattern.test(context) || yearlyPattern.test(context)) {
     score += 20;
     reasons.push("billing_context");
   }
@@ -261,6 +288,12 @@ function candidatesFromContext({
     pattern.lastIndex = 0;
 
     for (const match of context.matchAll(pattern)) {
+      const matchIndex = match.index ?? 0;
+      const localContext = localContextForMatch(
+        context,
+        matchIndex,
+        match[0].length,
+      );
       const first = match[1];
       const second = match[2];
       const third = match[3];
@@ -293,10 +326,10 @@ function candidatesFromContext({
         rawText: match[0].trim(),
         amount,
         currency,
-        period: periodForContext(context),
-        unit: unitForContext(context),
-        plan: planForContext(context, heading),
-        evidenceText: context,
+        period: candidatePeriod(localContext, context),
+        unit: unitForContext(localContext) ?? unitForContext(context),
+        plan: planForContext(localContext, heading),
+        evidenceText: localContext,
         context,
         section,
         score: scoring.score,
@@ -481,20 +514,28 @@ function pricingContexts(scrape: ScrapedPage, pageType: PageType) {
     section: block.type,
     heading: block.heading,
   }));
+  const lines = textLines(scrape);
 
-  if (!scrape.pageModel?.blocks.length) {
-    const lines = textLines(scrape);
+  lines.forEach((line, index) => {
+    contexts.push({
+      context: lineWindow(lines, index),
+      section: pageType === "pricing" ? "pricing" : "unknown",
+      heading: null,
+    });
+  });
 
-    lines.forEach((line, index) => {
-      contexts.push({
-        context: lineWindow(lines, index),
-        section: pageType === "pricing" ? "pricing" : "unknown",
-        heading: null,
-      });
+  if (scrape.metaDescription || scrape.title) {
+    contexts.push({
+      context: [scrape.title, scrape.metaDescription].filter(Boolean).join("\n"),
+      section: "unknown",
+      heading: scrape.title || null,
     });
   }
 
-  return contexts.filter((item) => item.context.trim());
+  return uniqueBy(
+    contexts.filter((item) => item.context.trim()),
+    (item) => `${item.section}:${sentenceCaseKey(item.context)}`,
+  );
 }
 
 export function analyzePricing(

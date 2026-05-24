@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
-import { getStripe } from "@/lib/stripe";
+import { getStripe, planForStripePrice } from "@/lib/stripe";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
 export const runtime = "nodejs";
@@ -35,11 +35,13 @@ async function setUserPlanFromSubscription({
 }) {
   const supabase = getSupabaseAdminClient();
   const active = isActiveSubscription(subscription.status);
+  const priceId = subscription.items.data[0]?.price.id;
+  const activePlan = planForStripePrice(priceId);
   const payload = active
     ? {
-        plan: "pro" as const,
-        competitor_limit: 20,
-        scan_interval_hours: 12,
+        plan: activePlan,
+        competitor_limit: activePlan === "business" ? 999 : 20,
+        scan_interval_hours: activePlan === "business" ? 6 : 12,
         subscription_status: subscription.status,
         current_period_end: subscriptionPeriodEnd(subscription),
         billing_customer_id: customerId,

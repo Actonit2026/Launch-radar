@@ -404,14 +404,27 @@ function createRecommendation({
 function pricingVisibilityRecommendation(
   input: ProductRecommendationInput,
 ): ProductRecommendationDraft | null {
-  const visiblePrice = bestFact(input.productFacts, ["visible_price"]);
+  const visiblePrice = bestFact(input.productFacts, [
+    "visible_price",
+    "lowest_price",
+    "pricing_plan",
+  ]);
+  const userPricingVisibility = bestFact(input.productFacts, [
+    "pricing_visibility",
+  ]);
 
-  if (visiblePrice) {
+  if (
+    visiblePrice ||
+    ["public", "partially_public"].includes(userPricingVisibility?.value ?? "")
+  ) {
     return null;
   }
 
   const userContactSales =
     bestFact(input.productFacts, ["contact_sales"]) ??
+    (userPricingVisibility?.value === "contact_sales"
+      ? userPricingVisibility
+      : null) ??
     bestFact(input.productFacts, ["primary_cta", "secondary_cta"]);
 
   if (!userContactSales) {
@@ -428,10 +441,28 @@ function pricingVisibilityRecommendation(
     return null;
   }
 
-  const supports = competitorSupportByField(input.competitorSnapshots, [
-    "visible_price",
-    "free_plan",
-  ]);
+  const supports = input.competitorSnapshots
+    .map((snapshot) => {
+      const visibility = bestFact(snapshot.facts, ["pricing_visibility"]);
+      const pricingPlan = bestFact(snapshot.facts, [
+        "pricing_plan",
+        "visible_price",
+        "lowest_price",
+        "free_plan",
+      ]);
+
+      if (
+        visibility &&
+        ["public", "partially_public"].includes(visibility.value)
+      ) {
+        return { competitorName: snapshot.competitorName, fact: visibility };
+      }
+
+      return pricingPlan
+        ? { competitorName: snapshot.competitorName, fact: pricingPlan }
+        : null;
+    })
+    .filter((item): item is CompetitorSupport => Boolean(item));
   const count = comparisonCount(supports, input.competitorSnapshots.length);
 
   return createRecommendation({
@@ -454,6 +485,7 @@ function ctaRecommendation(
   const userCta = bestFact(input.productFacts, [
     "primary_cta",
     "secondary_cta",
+    "cta_funnel_intent",
   ]);
 
   if (!userCta) {
@@ -462,7 +494,9 @@ function ctaRecommendation(
 
   const userIntent = ctaIntent(userCta);
   const userIsPassive =
-    userIntent === "unknown" || passiveCtaPattern.test(userCta.value);
+    userCta.field === "cta_funnel_intent"
+      ? userCta.value === "unclear"
+      : userIntent === "unknown" || passiveCtaPattern.test(userCta.value);
 
   if (!userIsPassive) {
     return null;
@@ -477,7 +511,12 @@ function ctaRecommendation(
   const supports = input.competitorSnapshots
     .map((snapshot) => {
       const fact = bestFact(snapshot.facts, ["primary_cta"]);
+      const funnel = bestFact(snapshot.facts, ["cta_funnel_intent"]);
       const intent = ctaIntent(fact);
+
+      if (funnel && ["self_serve", "hybrid"].includes(funnel.value)) {
+        return { competitorName: snapshot.competitorName, fact: funnel };
+      }
 
       return fact && intent && clearIntents.has(intent)
         ? { competitorName: snapshot.competitorName, fact }
@@ -509,7 +548,9 @@ function positioningRecommendation(
   ]);
   const userSpecificPositioning = bestFact(input.productFacts, [
     "target_customer",
+    "target_customer_model",
     "product_category",
+    "market_category",
     "key_use_case",
   ]);
 
@@ -519,7 +560,9 @@ function positioningRecommendation(
 
   const supports = competitorSupportByField(input.competitorSnapshots, [
     "target_customer",
+    "target_customer_model",
     "product_category",
+    "market_category",
     "main_value_prop",
   ]);
   const count = comparisonCount(supports, input.competitorSnapshots.length);

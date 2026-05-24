@@ -30,7 +30,8 @@ export async function enqueueManualScan({
     .eq("id", userId)
     .maybeSingle();
   const plan = planViewFromUser(profile);
-  const priority = plan.name === "pro" ? 100 : 50;
+  const priority =
+    plan.name === "business" ? 150 : plan.name === "pro" ? 100 : 50;
   const dedupeKey = `${userId}:manual_scan`;
   const { data: existing } = await supabase
     .from("scan_jobs")

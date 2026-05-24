@@ -5,7 +5,13 @@ import { redirect } from "next/navigation";
 import { getAppUrl } from "@/lib/app-url";
 import { getCurrentUser } from "@/lib/auth";
 import { ensureUserProfile } from "@/lib/profiles";
-import { getAnnualProPriceId, getProPriceId, getStripe } from "@/lib/stripe";
+import {
+  getAnnualBusinessPriceId,
+  getAnnualProPriceId,
+  getBusinessPriceId,
+  getProPriceId,
+  getStripe,
+} from "@/lib/stripe";
 import { createClient } from "@/lib/supabase/server";
 
 async function createCheckoutSessionAction(priceId: string) {
@@ -87,6 +93,14 @@ export async function createProCheckoutSessionAction() {
 
 export async function createAnnualProCheckoutSessionAction() {
   return createCheckoutSessionAction(getAnnualProPriceId());
+}
+
+export async function createBusinessCheckoutSessionAction() {
+  return createCheckoutSessionAction(getBusinessPriceId());
+}
+
+export async function createAnnualBusinessCheckoutSessionAction() {
+  return createCheckoutSessionAction(getAnnualBusinessPriceId());
 }
 
 export async function createBillingPortalSessionAction() {

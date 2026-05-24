@@ -21,4 +21,5 @@ export async function refreshDemoExamplesAction() {
 
   revalidatePath("/");
   revalidatePath("/admin/analyzer");
+  revalidatePath("/admin/demo-examples");
 }

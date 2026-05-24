@@ -62,6 +62,7 @@ export async function saveCompetitorIntelligenceSnapshot({
     extracted_text_length: page.extractedTextLength,
     fact_count: page.facts.length,
     warnings: page.warnings,
+    models: page.models,
   }));
   const warnings = unique([
     ...pages.flatMap((page) => page.warnings),

@@ -49,6 +49,10 @@ export type SnapshotFacts = {
   availability: {
     ok: boolean;
     fetch_status: number | null;
+    status?: string;
+    final_url?: string;
+    error_type?: string | null;
+    error_message?: string | null;
   };
   pricing: {
     status: string;
@@ -435,6 +439,11 @@ function compactPageIntelligence(page: PageIntelligence): SnapshotFacts {
     availability: {
       ok: page.fetchStatus === null || page.fetchStatus < 400,
       fetch_status: page.fetchStatus,
+      status: page.models.availability.status,
+      final_url: normalizeUrl(page.models.availability.final_url),
+      error_type: page.models.availability.error_type,
+      error_message:
+        page.models.availability.evidence[0]?.evidence_text ?? null,
     },
     pricing: {
       status: page.pricing.status,
@@ -498,6 +507,16 @@ function compactPageIntelligence(page: PageIntelligence): SnapshotFacts {
 }
 
 function hashableFacts(facts: SnapshotFacts) {
+  const modelFields = new Set([
+    "pricing_visibility",
+    "pricing_model",
+    "pricing_plan",
+    "cta_funnel_intent",
+    "market_category",
+    "target_customer_model",
+    "feature_category",
+  ]);
+
   return {
     page_type: facts.page_type,
     availability: facts.availability,
@@ -549,6 +568,13 @@ function hashableFacts(facts: SnapshotFacts) {
         (fact) => fact.normalized_value,
       ),
     },
+    models: facts.facts
+      .filter((fact) => modelFields.has(fact.field))
+      .map((fact) => [
+        fact.field,
+        normalizeComparableText(fact.value),
+        normalizeUrl(fact.source_url),
+      ].join(":")),
   };
 }
 
@@ -565,6 +591,11 @@ export function buildSnapshotAnalysis({
   structuredFacts.availability = {
     ok: scrape.ok,
     fetch_status: scrape.status,
+    status: intelligence.models.availability.status,
+    final_url: normalizeUrl(intelligence.models.availability.final_url),
+    error_type: intelligence.models.availability.error_type,
+    error_message:
+      intelligence.models.availability.evidence[0]?.evidence_text ?? null,
   };
 
   return {
@@ -711,19 +742,29 @@ function compareAvailability(previous: SnapshotFacts, next: SnapshotFacts) {
   const changes: MeaningfulChange[] = [];
 
   if (previous.availability.ok && !next.availability.ok) {
+    const status = next.availability.status ?? "unavailable";
+    const currentFailure =
+      next.availability.error_message ??
+      (next.availability.fetch_status
+        ? `HTTP ${next.availability.fetch_status}`
+        : status);
+
     changes.push({
       category: "availability",
       changeType: "page_unavailable",
-      summary: `${formatPageType(next.page_type)} page became unreachable${
-        next.availability.fetch_status
-          ? ` (HTTP ${next.availability.fetch_status})`
-          : ""
-      }.`,
+      summary: `Previously tracked ${formatPageType(next.page_type)} page is no longer accessible (${status}).`,
       severity: next.page_type === "pricing" ? "high" : "medium",
       confidenceScore: 0.9,
       whyItMatters:
-        "A monitored public page disappearing can change what prospects and competitors can verify.",
-      evidence: [{ source_url: next.source_url, evidence_text: "Page fetch failed." }],
+        next.page_type === "pricing"
+          ? "A missing pricing page can hide packaging, price, or sales-motion changes."
+          : "A monitored public page disappearing can change what prospects and competitors can verify.",
+      evidence: [
+        {
+          source_url: next.source_url,
+          evidence_text: currentFailure,
+        },
+      ],
     });
   }
 
@@ -1038,6 +1079,213 @@ function compareChangelog(previous: SnapshotFacts, next: SnapshotFacts) {
   return changes;
 }
 
+function modelFactsByField(facts: SnapshotFacts, field: string) {
+  return facts.facts
+    .filter((fact) => fact.field === field)
+    .map((fact) => ({
+      ...fact,
+      normalized_value: normalizeComparableText(fact.value),
+    }));
+}
+
+function modelFactSet(facts: SnapshotFacts, field: string) {
+  return new Set(modelFactsByField(facts, field).map((fact) => fact.normalized_value));
+}
+
+function modelFactEvidence(
+  fact: ReturnType<typeof modelFactsByField>[number] | undefined,
+) {
+  return fact
+    ? [{ source_url: fact.source_url, evidence_text: fact.evidence_text }]
+    : [];
+}
+
+function compareSingleModelFact({
+  previous,
+  next,
+  field,
+  category,
+  changeType,
+  label,
+  severity,
+  whyItMatters,
+}: {
+  previous: SnapshotFacts;
+  next: SnapshotFacts;
+  field: string;
+  category: MeaningfulChange["category"];
+  changeType: string;
+  label: string;
+  severity: Severity;
+  whyItMatters: string;
+}) {
+  const oldFact = modelFactsByField(previous, field)[0];
+  const newFact = modelFactsByField(next, field)[0];
+
+  if (!oldFact || !newFact || oldFact.normalized_value === newFact.normalized_value) {
+    return [];
+  }
+
+  return [
+    {
+      category,
+      changeType,
+      summary: `${label} changed from "${oldFact.value}" to "${newFact.value}".`,
+      severity,
+      confidenceScore: Math.min(oldFact.confidence_score, newFact.confidence_score),
+      whyItMatters,
+      evidence: [...modelFactEvidence(oldFact), ...modelFactEvidence(newFact)],
+    } satisfies MeaningfulChange,
+  ];
+}
+
+function compareModelSet({
+  previous,
+  next,
+  field,
+  category,
+  addedType,
+  removedType,
+  label,
+  severity,
+  whyItMatters,
+}: {
+  previous: SnapshotFacts;
+  next: SnapshotFacts;
+  field: string;
+  category: MeaningfulChange["category"];
+  addedType: string;
+  removedType: string;
+  label: string;
+  severity: Severity;
+  whyItMatters: string;
+}) {
+  const previousValues = modelFactSet(previous, field);
+  const nextValues = modelFactSet(next, field);
+  const added = addedValues(nextValues, previousValues);
+  const removed = removedValues(nextValues, previousValues);
+  const changes: MeaningfulChange[] = [];
+
+  if (added.length) {
+    const fact = modelFactsByField(next, field).find(
+      (item) => item.normalized_value === added[0],
+    );
+
+    changes.push({
+      category,
+      changeType: addedType,
+      summary: `New ${label}: "${fact?.value ?? added[0]}".`,
+      severity,
+      confidenceScore: fact?.confidence_score ?? 0.68,
+      whyItMatters,
+      evidence: modelFactEvidence(fact),
+    });
+  }
+
+  if (removed.length) {
+    const fact = modelFactsByField(previous, field).find(
+      (item) => item.normalized_value === removed[0],
+    );
+
+    changes.push({
+      category,
+      changeType: removedType,
+      summary: `${label} removed: "${fact?.value ?? removed[0]}".`,
+      severity,
+      confidenceScore: fact?.confidence_score ?? 0.68,
+      whyItMatters,
+      evidence: modelFactEvidence(fact),
+    });
+  }
+
+  return changes;
+}
+
+function compareBusinessModels(previous: SnapshotFacts, next: SnapshotFacts) {
+  return [
+    ...compareSingleModelFact({
+      previous,
+      next,
+      field: "pricing_visibility",
+      category: "pricing",
+      changeType: "pricing_visibility_changed",
+      label: "Pricing visibility",
+      severity: "high",
+      whyItMatters:
+        "Pricing visibility changes can signal a shift between self-serve and sales-led motion.",
+    }),
+    ...compareSingleModelFact({
+      previous,
+      next,
+      field: "pricing_model",
+      category: "pricing",
+      changeType: "pricing_model_changed",
+      label: "Pricing model",
+      severity: "medium",
+      whyItMatters:
+        "Pricing model changes can affect how buyers evaluate, compare, and budget.",
+    }),
+    ...compareModelSet({
+      previous,
+      next,
+      field: "pricing_plan",
+      category: "pricing",
+      addedType: "pricing_plan_model_added",
+      removedType: "pricing_plan_model_removed",
+      label: "pricing plan",
+      severity: "medium",
+      whyItMatters:
+        "Plan-level changes can reveal packaging experiments or target segment shifts.",
+    }),
+    ...compareSingleModelFact({
+      previous,
+      next,
+      field: "cta_funnel_intent",
+      category: "cta",
+      changeType: "cta_funnel_intent_changed",
+      label: "CTA strategy",
+      severity: "medium",
+      whyItMatters:
+        "CTA strategy changes can reveal a shift toward self-serve, sales-led, or hybrid acquisition.",
+    }),
+    ...compareSingleModelFact({
+      previous,
+      next,
+      field: "market_category",
+      category: "positioning",
+      changeType: "market_category_changed",
+      label: "Market category",
+      severity: "medium",
+      whyItMatters:
+        "Category changes can shift which buyers and competitors a company is positioning against.",
+    }),
+    ...compareModelSet({
+      previous,
+      next,
+      field: "target_customer_model",
+      category: "positioning",
+      addedType: "target_customer_added",
+      removedType: "target_customer_removed",
+      label: "target customer",
+      severity: "medium",
+      whyItMatters:
+        "Target-customer changes can reveal a new go-to-market emphasis.",
+    }),
+    ...compareModelSet({
+      previous,
+      next,
+      field: "feature_category",
+      category: "features",
+      addedType: "feature_category_added",
+      removedType: "feature_category_removed",
+      label: "feature theme",
+      severity: "medium",
+      whyItMatters:
+        "Feature-theme changes can indicate new roadmap or product-marketing emphasis.",
+    }),
+  ];
+}
+
 export function compareSnapshotAnalyses({
   previousRawHash,
   previousCanonicalHash,
@@ -1069,6 +1317,7 @@ export function compareSnapshotAnalyses({
         ...comparePositioning(previousFacts, current.structuredFacts),
         ...compareFeatures(previousFacts, current.structuredFacts),
         ...compareChangelog(previousFacts, current.structuredFacts),
+        ...compareBusinessModels(previousFacts, current.structuredFacts),
       ]
     : [];
 
@@ -1118,6 +1367,10 @@ export function createDetectedChangePayload(changes: MeaningfulChange[]) {
     severity,
     change_type: primary.changeType,
     confidence_score: primary.confidenceScore,
+    category: primary.category,
+    evidence_text: primary.evidence[0]?.evidence_text ?? null,
+    old_value: null,
+    new_value: null,
     evidence_json: JSON.parse(JSON.stringify(primary.evidence)) as Json,
   };
 }

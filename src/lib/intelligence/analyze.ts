@@ -1,6 +1,10 @@
 import { analyzeChangelog } from "@/lib/intelligence/changelog";
 import { analyzeCtas } from "@/lib/intelligence/ctas";
 import { analyzeFeatures } from "@/lib/intelligence/features";
+import {
+  buildBusinessModels,
+  businessModelFacts,
+} from "@/lib/intelligence/models";
 import { analyzePositioning } from "@/lib/intelligence/positioning";
 import { analyzePricing } from "@/lib/intelligence/pricing";
 import type {
@@ -18,8 +22,21 @@ export function analyzePageIntelligence({
   const ctas = analyzeCtas(scrape);
   const features = analyzeFeatures(scrape, pageType);
   const changelog = analyzeChangelog(scrape, pageType);
+  const models = buildBusinessModels({
+    scrape,
+    pageType,
+    pricing,
+    positioning,
+    ctas,
+    features,
+    changelog,
+  });
+  const pricingWithModel = {
+    ...pricing,
+    model: models.pricing,
+  };
   const facts: StructuredFact[] = [
-    ...pricing.facts,
+    ...pricingWithModel.facts,
     ...positioning.facts,
     ...ctas.ctas,
     ...features.features,
@@ -28,6 +45,7 @@ export function analyzePageIntelligence({
       ? [changelog.lastVisibleUpdateDate]
       : []),
     ...changelog.recentUpdateTitles,
+    ...businessModelFacts(models),
   ];
   const warnings = [
     ...(scrape.warnings ?? []),
@@ -45,11 +63,12 @@ export function analyzePageIntelligence({
     fetchStatus: scrape.status,
     contentHash: scrape.hash,
     extractedTextLength: scrape.rawText.length,
-    pricing,
+    pricing: pricingWithModel,
     positioning,
     ctas,
     features,
     changelog,
+    models,
     facts,
     warnings,
   };

@@ -71,6 +71,9 @@ function compactScrape(scrape: ScrapedPage | null | undefined) {
     final_url: scrape.finalUrl,
     title: scrape.title,
     fetch_status: scrape.status,
+    fetch_result: scrape.fetchStatus ?? (scrape.ok ? "success" : "failed"),
+    error_type: scrape.errorType ?? null,
+    redirected: scrape.redirected ?? scrape.requestedUrl !== scrape.finalUrl,
     ok: scrape.ok,
     rendering: scrape.rendering ?? "static",
     javascript_heavy: scrape.javascriptHeavy ?? false,
@@ -174,6 +177,8 @@ function compactPage(page: PageIntelligence) {
       evidence_text: page.changelog.evidenceText,
       warnings: page.changelog.warnings,
     },
+    availability: page.models.availability,
+    models: page.models,
     fact_count: page.facts.length,
     facts: page.facts.slice(0, 60).map(compactFact),
     warnings: page.warnings,
@@ -186,6 +191,13 @@ function compactMonitoredPage(page: MonitoredPage) {
     url: page.url,
     page_type: page.page_type,
     last_checked_at: page.last_checked_at,
+    availability_status: page.availability_status,
+    last_fetch_status: page.last_fetch_status,
+    last_http_status: page.last_http_status,
+    last_error_type: page.last_error_type,
+    last_success_at: page.last_success_at,
+    last_failure_at: page.last_failure_at,
+    consecutive_failures: page.consecutive_failures,
   };
 }
 

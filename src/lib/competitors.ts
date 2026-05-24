@@ -4,6 +4,7 @@ import type {
   CompetitorIntelligenceSnapshot,
   DetectedChange,
   MonitoredPage,
+  ProductRecommendation,
   ScanDebugLog,
 } from "@/lib/database.types";
 import { formatDatabaseError } from "@/lib/errors";
@@ -37,6 +38,10 @@ export type RecentChange = DetectedChange & {
 export type DashboardData = {
   competitors: DashboardCompetitor[];
   recentChanges: RecentChange[];
+  product: {
+    exists: boolean;
+    topRecommendation: ProductRecommendation | null;
+  };
   plan: UserPlanView & {
     competitorCount: number;
     masterAdmin: boolean;
@@ -192,6 +197,35 @@ export async function getDashboardData(
     };
   }
 
+  const { data: product, error: productError } = await supabase
+    .from("user_products")
+    .select("id")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (productError) {
+    return { data: null, error: formatDatabaseError(productError.message) };
+  }
+
+  const { data: topRecommendation, error: recommendationError } = product
+    ? await supabase
+        .from("product_recommendations")
+        .select("*")
+        .eq("user_product_id", product.id)
+        .eq("user_id", user.id)
+        .order("confidence", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null, error: null };
+
+  if (recommendationError) {
+    return {
+      data: null,
+      error: formatDatabaseError(recommendationError.message),
+    };
+  }
+
   const competitorById = new Map(
     competitorRows.map((competitor) => [competitor.id, competitor]),
   );
@@ -256,6 +290,10 @@ export async function getDashboardData(
     data: {
       competitors: competitorsWithPages,
       recentChanges,
+      product: {
+        exists: Boolean(product),
+        topRecommendation: topRecommendation ?? null,
+      },
       plan: {
         ...basePlan,
         label: masterAdmin ? "Master admin" : basePlan.label,

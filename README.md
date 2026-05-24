@@ -84,6 +84,7 @@ The current build also includes:
 - URL-first competitor setup with evidence-backed page discovery and structured analysis
 - Meaningful change detection that ignores casing, whitespace, punctuation, boilerplate, and raw HTML noise
 - Cached real homepage examples so public visitors do not trigger scans
+- Business plan support with fair-use competitor limits, 6-hour refreshes, priority queueing, and higher scan/render allowances
 - Improved signup, login, email confirmation, forgot-password, and reset-password flows
 - Free and Pro plan limits, upgrade prompts, and Stripe Checkout/Portal wiring
 - Your Product analysis with evidence-backed competitor comparison recommendations
@@ -117,6 +118,8 @@ Required:
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_PRO_PRICE_ID`
 - `STRIPE_PRO_ANNUAL_PRICE_ID` for the annual Pro checkout path
+- `STRIPE_BUSINESS_PRICE_ID` for the Business monthly checkout path
+- `STRIPE_BUSINESS_ANNUAL_PRICE_ID` for the Business annual checkout path
 - `CRON_SECRET` for scheduled worker and maintenance endpoints
 - `SCHEDULED_SCAN_USER_LIMIT` for the maximum users processed by each scheduled scan run
 - `ADMIN_EMAILS` for the internal admin metrics page
@@ -142,10 +145,12 @@ Cost guard defaults:
 - `MAX_SCANS_PER_DAY_GLOBAL=80`
 - `MAX_SCANS_PER_USER_PER_DAY_FREE=1`
 - `MAX_SCANS_PER_USER_PER_DAY_PRO=5`
+- `MAX_SCANS_PER_USER_PER_DAY_BUSINESS=25`
 - `MAX_AI_CALLS_PER_USER_PER_DAY=2`
 - `MAX_AI_CALLS_GLOBAL_PER_DAY=50`
 - `MAX_AI_CALLS_PER_DAY_GLOBAL=50`
 - `MAX_BROWSER_RENDER_PER_USER_PER_DAY=3`
+- `MAX_BROWSER_RENDER_PER_BUSINESS_PER_DAY=12`
 - `MAX_BROWSER_RENDER_GLOBAL_PER_DAY=20`
 - `MAX_PAGES_PER_SCAN=15`
 - `AI_ESTIMATED_EUR_PER_1K_TOKENS=0.0002`

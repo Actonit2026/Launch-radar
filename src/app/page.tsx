@@ -18,8 +18,9 @@ export default async function Home() {
           Track meaningful competitor moves, not noisy website diffs.
         </h1>
         <p className="mt-6 max-w-2xl text-lg leading-8 text-ink/70">
-          LaunchRadar monitors competitor pricing, positioning, CTAs, features,
-          and launches, then shows only evidence-backed changes that matter.
+          LaunchRadar analyzes public SaaS pages, extracts pricing,
+          positioning, CTAs, features, and updates, then alerts you only when
+          something strategically important changes.
         </p>
         <div className="mt-8 flex flex-wrap gap-3">
           <Link
@@ -29,21 +30,21 @@ export default async function Home() {
             Start tracking free
           </Link>
           <Link
-            href={user ? "/dashboard/your-product" : "/pricing"}
+            href="#live-examples"
             className="inline-flex h-12 items-center justify-center rounded-md border border-ink/15 bg-white px-6 text-sm font-semibold text-ink transition hover:border-ink/35"
           >
-            {user ? "Compare your product" : "View pricing"}
+            See live examples
           </Link>
         </div>
       </section>
 
       <section className="grid gap-5 md:grid-cols-5">
         {[
-          "Paste your product URL",
-          "Add competitors",
-          "Extract evidence-backed facts",
-          "Monitor meaningful changes",
-          "Recommend what to improve",
+          "Paste a competitor URL",
+          "Extract verified facts",
+          "Build a baseline",
+          "Detect meaningful changes",
+          "See what to improve",
         ].map((step, index) => (
           <div key={step} className="rounded-lg border border-ink/10 bg-white p-5">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
@@ -75,7 +76,11 @@ export default async function Home() {
         ))}
       </section>
 
-      <section aria-label="LaunchRadar preview" className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft">
+      <section
+        id="live-examples"
+        aria-label="LaunchRadar preview"
+        className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft"
+      >
         <div className="flex items-center justify-between border-b border-ink/10 pb-4">
           <div>
             <p className="text-sm font-semibold text-ink">
