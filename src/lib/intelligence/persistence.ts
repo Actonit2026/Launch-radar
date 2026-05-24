@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/database.types";
 import type { IntelligenceSummaryResult } from "@/lib/ai/intelligence-summary";
+import { buildBusinessProfile } from "@/lib/intelligence/business-profile";
 import type { PageIntelligence } from "@/lib/intelligence/types";
 
 type Supabase = SupabaseClient<Database>;
@@ -53,6 +54,10 @@ export async function saveCompetitorIntelligenceSnapshot({
   summary: IntelligenceSummaryResult;
 }) {
   const facts = pages.flatMap((page) => page.facts);
+  const businessProfile = buildBusinessProfile({
+    name: null,
+    pages,
+  });
   const analyzedPages = pages.map((page) => ({
     source_url: page.sourceUrl,
     page_type: page.pageType,
@@ -75,7 +80,10 @@ export async function saveCompetitorIntelligenceSnapshot({
       .from("competitor_intelligence_snapshots")
       .insert({
         competitor_id: competitorId,
-        summary: toJson(summary),
+        summary: toJson({
+          ...summary,
+          business_profile: businessProfile,
+        }),
         facts: toJson(facts),
         analyzed_pages: toJson(analyzedPages),
         warnings,

@@ -61,6 +61,12 @@ export default async function AdminPage() {
           >
             Demo examples
           </Link>
+          <Link
+            href="/admin/validation"
+            className="inline-flex h-10 items-center justify-center rounded-md border border-ink/15 bg-white px-4 text-sm font-semibold text-ink"
+          >
+            Validation suite
+          </Link>
         </div>
       </section>
 

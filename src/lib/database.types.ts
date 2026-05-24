@@ -176,6 +176,65 @@ export type Database = {
         };
         Relationships: [];
       };
+      validation_runs: {
+        Row: {
+          id: string;
+          run_type:
+            | "full_suite"
+            | "single_url"
+            | "scenario"
+            | "follow_up"
+            | "homepage_examples";
+          status: "passed" | "failed" | "partial";
+          case_count: number;
+          passed_count: number;
+          report_json: Json;
+          failures: string[];
+          created_by: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          run_type:
+            | "full_suite"
+            | "single_url"
+            | "scenario"
+            | "follow_up"
+            | "homepage_examples";
+          status: "passed" | "failed" | "partial";
+          case_count?: number;
+          passed_count?: number;
+          report_json?: Json;
+          failures?: string[];
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          run_type?:
+            | "full_suite"
+            | "single_url"
+            | "scenario"
+            | "follow_up"
+            | "homepage_examples";
+          status?: "passed" | "failed" | "partial";
+          case_count?: number;
+          passed_count?: number;
+          report_json?: Json;
+          failures?: string[];
+          created_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "validation_runs_created_by_fkey";
+            columns: ["created_by"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       competitors: {
         Row: {
           id: string;
@@ -812,4 +871,6 @@ export type UsageEvent =
   Database["public"]["Tables"]["usage_events"]["Row"];
 export type DemoExampleResult =
   Database["public"]["Tables"]["demo_example_results"]["Row"];
+export type ValidationRun =
+  Database["public"]["Tables"]["validation_runs"]["Row"];
 export type PageType = Database["public"]["Enums"]["page_type"];

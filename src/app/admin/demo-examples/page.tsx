@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { refreshDemoExamplesAction } from "@/app/admin/analyzer/actions";
+import {
+  refreshDemoExamplesAction,
+  refreshOneDemoExampleAction,
+} from "@/app/admin/analyzer/actions";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
 import { demoCompetitorPool } from "@/lib/demo-competitors";
@@ -256,7 +259,15 @@ export default async function DemoExamplesAdminPage() {
                       : "None"}
                   </td>
                   <td className="max-w-xs text-ink/60">
-                    {item.latest?.failure_reason ?? ""}
+                    <div className="flex flex-col gap-2">
+                      <span>{item.latest?.failure_reason ?? ""}</span>
+                      <form action={refreshOneDemoExampleAction}>
+                        <input type="hidden" name="name" value={item.name} />
+                        <button className="rounded-md border border-ink/10 bg-white px-2 py-1 text-xs font-semibold text-ink/60 hover:text-moss">
+                          Refresh one
+                        </button>
+                      </form>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -5,7 +5,6 @@ import { AddCompetitorDialog } from "@/components/add-competitor-dialog";
 import { ChangeCard } from "@/components/change-card";
 import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
 import { IntelligenceSnapshotPanel } from "@/components/intelligence-snapshot-panel";
-import { RunScanButton } from "@/components/run-scan-button";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -46,6 +45,107 @@ function setupStatusText(competitor: DashboardCompetitor) {
   return "Setting up your first scan...";
 }
 
+function addHours(value: string, hours: number) {
+  return new Date(Date.parse(value) + hours * 60 * 60 * 1000).toISOString();
+}
+
+function changeWeekStart() {
+  const now = new Date();
+  const day = now.getDay() || 7;
+  const monday = new Date(now);
+
+  monday.setHours(0, 0, 0, 0);
+  monday.setDate(monday.getDate() - day + 1);
+
+  return monday;
+}
+
+function MarketPulse({ data }: { data: DashboardData }) {
+  const weekStart = changeWeekStart();
+  const weeklyChanges = data.recentChanges.filter(
+    (change) => Date.parse(change.created_at) >= weekStart.getTime(),
+  );
+  const pricingChanges = weeklyChanges.filter(
+    (change) => change.category === "pricing",
+  ).length;
+  const positioningChanges = weeklyChanges.filter(
+    (change) => change.category === "positioning",
+  ).length;
+  const ctaChanges = weeklyChanges.filter(
+    (change) => change.category === "cta",
+  ).length;
+  const featureOrUpdateChanges = weeklyChanges.filter((change) =>
+    ["features", "changelog"].includes(change.category ?? ""),
+  ).length;
+  const unavailablePages = data.competitors.flatMap((competitor) =>
+    competitor.monitoredPages.filter(
+      (page) => page.last_fetch_status === "failed",
+    ),
+  ).length;
+  const publicPricingCompetitors = data.competitors.filter((competitor) => {
+    const visibility =
+      competitor.latestIntelligence?.summary.businessProfile?.monetization
+        .pricing_visibility;
+
+    return visibility === "public" || visibility === "partially_public";
+  }).length;
+  const changelogCompetitors = data.competitors.filter(
+    (competitor) =>
+      competitor.latestIntelligence?.summary.businessProfile?.momentum
+        .changelog_detected,
+  ).length;
+  const latestScan = data.competitors
+    .map((competitor) => competitor.lastCheckedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+  const nextScan = latestScan
+    ? addHours(latestScan, data.plan.scanIntervalHours)
+    : null;
+  const rows = [
+    ["Competitors", `${data.stats.competitors} tracked`],
+    ["Baseline", data.stats.trackedPages ? "Created" : "Pending"],
+    ["This week", `${weeklyChanges.length} meaningful changes`],
+    ["Pricing", `${pricingChanges} changes`],
+    ["Positioning", `${positioningChanges} changes`],
+    ["CTA", `${ctaChanges} changes`],
+    ["Features/updates", `${featureOrUpdateChanges} changes`],
+    ["Unavailable", `${unavailablePages} pages`],
+    ["Public pricing", `${publicPricingCompetitors} competitors`],
+    ["Public changelog", `${changelogCompetitors} competitors`],
+    ["Next scan", nextScan ? formatDateTime(nextScan) : "After baseline"],
+  ];
+
+  return (
+    <section className="rounded-lg border border-ink/10 bg-white p-5 shadow-soft">
+      <div className="flex flex-col justify-between gap-2 md:flex-row md:items-end">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-moss">
+            Market pulse
+          </p>
+          <h2 className="mt-2 text-xl font-semibold text-ink">
+            {weeklyChanges.length
+              ? `${weeklyChanges.length} meaningful changes this week`
+              : "No meaningful changes this week"}
+          </h2>
+        </div>
+        <p className="text-sm text-ink/50">
+          Noise from formatting, nav, and boilerplate is ignored.
+        </p>
+      </div>
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-md bg-paper p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink/40">
+              {label}
+            </p>
+            <p className="mt-1 text-sm font-semibold text-ink/75">{value}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function DashboardActionPanel({ data }: { data: DashboardData }) {
   const addCompetitor = (
     <AddCompetitorDialog
@@ -64,7 +164,9 @@ function DashboardActionPanel({ data }: { data: DashboardData }) {
               Next best action
             </p>
             <h2 className="mt-2 text-xl font-semibold text-ink">
-              Add your first competitor
+              {data.product.exists
+                ? "Add 2 competitors to compare"
+                : "Add your first competitor"}
             </h2>
             <p className="mt-2 text-sm leading-6 text-ink/60">
               Paste a public SaaS URL to create a baseline and verified snapshot.
@@ -166,14 +268,20 @@ function DashboardActionPanel({ data }: { data: DashboardData }) {
             Market pulse
           </p>
           <h2 className="mt-2 text-xl font-semibold text-ink">
-            No meaningful changes detected this week
+            Review your baseline snapshot
           </h2>
           <p className="mt-2 text-sm leading-6 text-ink/60">
-            Run a pulse check when you want a fresh read, or add another
-            competitor for broader coverage.
+            Your current baselines are useful even before changes appear:
+            review pricing, positioning, CTA strategy, feature themes, and
+            watchlist suggestions.
           </p>
         </div>
-        <RunScanButton />
+        <Link
+          href={`/dashboard/competitors/${data.competitors[0]?.id ?? ""}`}
+          className="inline-flex h-11 items-center justify-center rounded-md bg-moss px-5 text-sm font-semibold text-white transition hover:bg-moss/90"
+        >
+          Review baseline
+        </Link>
       </div>
     </section>
   );
@@ -262,6 +370,8 @@ export default async function DashboardPage() {
       ) : null}
 
       {data ? <DashboardActionPanel data={data} /> : null}
+
+      {data ? <MarketPulse data={data} /> : null}
 
       <section className="grid gap-4 md:grid-cols-3">
         <div className="rounded-lg border border-ink/10 bg-white p-5">
@@ -392,6 +502,8 @@ export default async function DashboardPage() {
                   summary={change.diff_summary}
                   severity={change.severity}
                   changeType={change.change_type}
+                  oldValue={change.old_value}
+                  newValue={change.new_value}
                   evidenceJson={change.evidence_json}
                   createdAt={change.created_at}
                   pageType={change.page.page_type}

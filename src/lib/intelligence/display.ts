@@ -1,4 +1,5 @@
 import type { CompetitorIntelligenceSnapshot, Json } from "@/lib/database.types";
+import type { BusinessProfile } from "@/lib/intelligence/business-profile";
 import type { Confidence } from "@/lib/intelligence/types";
 
 export const LIMITED_DATA_MESSAGE =
@@ -13,6 +14,7 @@ export type IntelligenceSummaryView = {
   unknowns: string[];
   warnings: string[];
   overallConfidence: Confidence;
+  businessProfile: BusinessProfile | null;
 };
 
 export type IntelligenceFactView = {
@@ -80,6 +82,7 @@ export type IntelligenceDisplayView = {
     text: string;
     facts: IntelligenceFactView[];
   };
+  businessProfile: BusinessProfile | null;
   warnings: string[];
 };
 
@@ -140,6 +143,9 @@ function parseSummary(value: Json): IntelligenceSummaryView {
     unknowns: stringArray(summary.unknowns),
     warnings: stringArray(summary.warnings),
     overallConfidence: confidenceOrLow(summary.overall_confidence),
+    businessProfile: isRecord(summary.business_profile)
+      ? (summary.business_profile as BusinessProfile)
+      : null,
   };
 }
 
@@ -461,6 +467,7 @@ export function buildIntelligenceDisplay(
     cta,
     changelog,
     features: featureDisplay,
+    businessProfile: snapshot.summary.businessProfile,
     warnings: displayWarnings({
       warnings: [...snapshot.warnings, ...snapshot.summary.warnings],
       pricing,

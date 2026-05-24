@@ -376,3 +376,56 @@ export async function refreshHomepageDemoExamples(): Promise<DemoRefreshResult> 
     rotationWeek: week,
   };
 }
+
+export async function refreshHomepageDemoExampleByName(name: string) {
+  const competitor = demoCompetitorPool.find(
+    (item) => item.name.toLowerCase() === name.toLowerCase(),
+  );
+
+  if (!competitor) {
+    throw new Error("Demo competitor not found.");
+  }
+
+  const supabase = getSupabaseAdminClient();
+  const week = demoRotationWeek();
+
+  try {
+    const row = await analyzeDemoCompetitor(competitor, 0);
+    const { data, error } = await supabase
+      .from("demo_example_results")
+      .upsert(row, { onConflict: "name,rotation_week" })
+      .select("*")
+      .single();
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    return rowToExample(data);
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Demo example refresh failed.";
+
+    await supabase.from("demo_example_results").upsert(
+      {
+        name: competitor.name,
+        site_url: competitor.url,
+        source_url: competitor.url,
+        category: competitor.category,
+        slot: 999,
+        rotation_week: week,
+        status: "failed",
+        analysis_json: toJson({}),
+        evidence_json: toJson([]),
+        confidence: "low",
+        last_verified_at: null,
+        analyzer_version: DEMO_ANALYZER_VERSION,
+        failure_reason: message,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "name,rotation_week" },
+    );
+
+    throw new Error(message);
+  }
+}

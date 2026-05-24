@@ -131,6 +131,88 @@ function FeatureList({
   );
 }
 
+function BusinessProfileOverview({ display }: { display: IntelligenceDisplayView }) {
+  const profile = display.businessProfile;
+
+  if (!profile) {
+    return (
+      <p className="mt-3 text-sm leading-6 text-ink/70">
+        {display.overview.text}
+      </p>
+    );
+  }
+
+  const rows = [
+    [
+      "Does",
+      profile.product_summary.value_props[0] ??
+        profile.product_summary.use_cases[0] ??
+        "Positioning unclear from public page content.",
+    ],
+    [
+      "Serves",
+      profile.product_summary.target_customers.slice(0, 2).join(", ") ||
+        profile.product_summary.category ||
+        "Target customer unclear.",
+    ],
+    [
+      "Monetizes",
+      profile.monetization.pricing_visibility === "public" ||
+      profile.monetization.pricing_visibility === "partially_public"
+        ? `${profile.monetization.pricing_model} pricing visible`
+        : profile.monetization.pricing_visibility === "contact_sales"
+          ? "Contact sales detected"
+          : "No public pricing detected",
+    ],
+    ["CTA", profile.conversion.primary_cta ?? "No clear CTA detected."],
+    [
+      "Themes",
+      profile.product_capabilities.feature_categories.slice(0, 3).join(", ") ||
+        "Feature themes unclear.",
+    ],
+    [
+      "Updates",
+      profile.momentum.changelog_detected
+        ? "Public updates detected"
+        : "No changelog detected",
+    ],
+  ];
+
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-3">
+      {rows.map(([label, value]) => (
+        <div key={label} className="rounded-md bg-paper p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink/40">
+            {label}
+          </p>
+          <p className="mt-1 text-sm leading-6 text-ink/70">{value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Watchlist({ display }: { display: IntelligenceDisplayView }) {
+  const suggestions = display.businessProfile?.watchlist_suggestions ?? [];
+
+  if (!suggestions.length) {
+    return null;
+  }
+
+  return (
+    <div className="mt-5 border-t border-ink/10 pt-4">
+      <h3 className="text-sm font-semibold text-ink">Worth watching</h3>
+      <ul className="mt-2 grid gap-2 text-sm leading-6 text-ink/60 md:grid-cols-2">
+        {suggestions.slice(0, 4).map((suggestion) => (
+          <li key={suggestion} className="rounded-md bg-paper px-3 py-2">
+            {suggestion}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function IntelligenceSnapshotPanel({
   display,
   compact = false,
@@ -162,9 +244,7 @@ export function IntelligenceSnapshotPanel({
         </span>
       </div>
 
-      <p className="mt-3 text-sm leading-6 text-ink/70">
-        {display.overview.text}
-      </p>
+      <BusinessProfileOverview display={display} />
 
       <p className="mt-2 text-xs leading-5 text-ink/45">
         Snapshot {formatDateTime(display.createdAt)} -{" "}
@@ -189,6 +269,8 @@ export function IntelligenceSnapshotPanel({
         ))}
         <FeatureList display={display} showEvidence={!compact} />
       </div>
+
+      <Watchlist display={display} />
 
       {!compact && display.warnings.length ? (
         <div className="mt-5 border-t border-ink/10 pt-4">

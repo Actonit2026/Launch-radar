@@ -232,6 +232,8 @@ export default async function CompetitorDetailPage({
                   summary={change.diff_summary}
                   severity={change.severity}
                   changeType={change.change_type}
+                  oldValue={change.old_value}
+                  newValue={change.new_value}
                   evidenceJson={change.evidence_json}
                   createdAt={change.created_at}
                   pageType={change.page.page_type}

@@ -126,6 +126,8 @@ export type MeaningfulChange = {
   severity: Severity;
   confidenceScore: number;
   whyItMatters: string;
+  oldValue?: string | null;
+  newValue?: string | null;
   evidence: Array<{
     source_url: string;
     evidence_text: string;
@@ -755,6 +757,8 @@ function compareAvailability(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `Previously tracked ${formatPageType(next.page_type)} page is no longer accessible (${status}).`,
       severity: next.page_type === "pricing" ? "high" : "medium",
       confidenceScore: 0.9,
+      oldValue: `${formatPageType(previous.page_type)} page live`,
+      newValue: currentFailure,
       whyItMatters:
         next.page_type === "pricing"
           ? "A missing pricing page can hide packaging, price, or sales-motion changes."
@@ -775,6 +779,8 @@ function compareAvailability(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `${formatPageType(next.page_type)} page became reachable again.`,
       severity: "low",
       confidenceScore: 0.84,
+      oldValue: `${formatPageType(previous.page_type)} page unavailable`,
+      newValue: `${formatPageType(next.page_type)} page live`,
       whyItMatters:
         "Recovered public pages can restore pricing, positioning, or feature evidence.",
       evidence: [{ source_url: next.source_url, evidence_text: "Page fetch succeeded." }],
@@ -798,6 +804,8 @@ function comparePricing(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `Lowest visible price changed from ${formatPrice(previousLowest)} to ${formatPrice(nextLowest)}.`,
       severity: "high",
       confidenceScore: Math.min(previousLowest.confidence_score, nextLowest.confidence_score),
+      oldValue: formatPrice(previousLowest),
+      newValue: formatPrice(nextLowest),
       whyItMatters:
         "Entry pricing changes can affect how prospects compare plans and budgets.",
       evidence: [...factEvidence(previousLowest), ...factEvidence(nextLowest)],
@@ -811,6 +819,8 @@ function comparePricing(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `Highest visible price changed from ${formatPrice(previousHighest)} to ${formatPrice(nextHighest)}.`,
       severity: "medium",
       confidenceScore: Math.min(previousHighest.confidence_score, nextHighest.confidence_score),
+      oldValue: formatPrice(previousHighest),
+      newValue: formatPrice(nextHighest),
       whyItMatters:
         "Packaging movement can signal a shift in target account size or monetization.",
       evidence: [...factEvidence(previousHighest), ...factEvidence(nextHighest)],
@@ -826,6 +836,8 @@ function comparePricing(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: added ? "Free plan was added." : "Free plan was removed.",
       severity: "high",
       confidenceScore: 0.86,
+      oldValue: previous.pricing.free_plan ? "Free plan visible" : "No free plan detected",
+      newValue: next.pricing.free_plan ? "Free plan visible" : "No free plan detected",
       whyItMatters:
         "Free plan availability can change acquisition strategy and buyer expectations.",
       evidence: [
@@ -846,6 +858,8 @@ function comparePricing(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: "Public pricing was replaced by contact sales language.",
       severity: "high",
       confidenceScore: 0.84,
+      oldValue: "Public paid prices visible",
+      newValue: "Contact sales visible",
       whyItMatters:
         "Moving from public pricing to sales-led pricing can change buyer qualification and sales motion.",
       evidence: factEvidence(next.pricing.contact_sales),
@@ -863,6 +877,8 @@ function comparePricing(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: "Contact sales pricing was replaced by public pricing.",
       severity: "high",
       confidenceScore: 0.84,
+      oldValue: "Contact sales visible",
+      newValue: "Public paid prices visible",
       whyItMatters:
         "Publishing prices can change conversion expectations and competitive comparisons.",
       evidence: next.pricing.paid_prices.flatMap(factEvidence),
@@ -881,6 +897,8 @@ function comparePricing(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `New pricing plan added: ${addedPlans[0]}.`,
       severity: "medium",
       confidenceScore: 0.72,
+      oldValue: null,
+      newValue: addedPlans[0],
       whyItMatters:
         "New plans can signal packaging experiments or a new customer segment.",
       evidence: next.pricing.plan_names
@@ -896,6 +914,8 @@ function comparePricing(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `Pricing plan removed: ${removedPlans[0]}.`,
       severity: "medium",
       confidenceScore: 0.72,
+      oldValue: removedPlans[0],
+      newValue: null,
       whyItMatters:
         "Removed plans can signal packaging cleanup or a changed go-to-market focus.",
       evidence: previous.pricing.plan_names
@@ -922,6 +942,8 @@ function compareCtas(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `Primary CTA changed from "${displayText(oldCta)}" to "${displayText(newCta)}".`,
       severity: "medium",
       confidenceScore: Math.min(oldCta.confidence_score, newCta.confidence_score),
+      oldValue: displayText(oldCta),
+      newValue: displayText(newCta),
       whyItMatters:
         "Primary CTA changes can indicate a shift in acquisition motion or conversion goal.",
       evidence: [...factEvidence(oldCta), ...factEvidence(newCta)],
@@ -983,6 +1005,8 @@ function comparePositioning(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `${field.label} changed from "${displayText(oldFact)}" to "${displayText(newFact)}".`,
       severity: field.severity,
       confidenceScore: Math.min(oldFact.confidence_score, newFact.confidence_score),
+      oldValue: displayText(oldFact),
+      newValue: displayText(newFact),
       whyItMatters:
         "Positioning changes can shift which buyers the competitor is trying to attract.",
       evidence: [...factEvidence(oldFact), ...factEvidence(newFact)],
@@ -1008,6 +1032,8 @@ function compareFeatures(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `New feature signal added: "${feature?.value ?? added[0]}".`,
       severity: "medium",
       confidenceScore: feature?.confidence_score ?? 0.68,
+      oldValue: null,
+      newValue: feature?.value ?? added[0],
       whyItMatters:
         "New feature messaging can signal roadmap focus or a changed product emphasis.",
       evidence: factEvidence(feature),
@@ -1023,6 +1049,8 @@ function compareFeatures(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `Feature signal removed: "${feature?.value ?? removed[0]}".`,
       severity: "medium",
       confidenceScore: feature?.confidence_score ?? 0.68,
+      oldValue: feature?.value ?? removed[0],
+      newValue: null,
       whyItMatters:
         "Removed feature messaging can signal packaging or positioning changes.",
       evidence: factEvidence(feature),
@@ -1049,6 +1077,8 @@ function compareChangelog(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `New changelog entry detected: "${title?.value ?? newTitles[0]}".`,
       severity: "medium",
       confidenceScore: title?.confidence_score ?? 0.68,
+      oldValue: null,
+      newValue: title?.value ?? newTitles[0],
       whyItMatters:
         "Release activity can reveal what the competitor is actively shipping.",
       evidence: factEvidence(title),
@@ -1070,6 +1100,8 @@ function compareChangelog(previous: SnapshotFacts, next: SnapshotFacts) {
       summary: `Last visible update date changed from "${oldDate.value}" to "${newDate.value}".`,
       severity: "medium",
       confidenceScore: Math.min(oldDate.confidence_score, newDate.confidence_score),
+      oldValue: oldDate.value,
+      newValue: newDate.value,
       whyItMatters:
         "Updated release timing can signal recent product activity.",
       evidence: [...factEvidence(oldDate), ...factEvidence(newDate)],
@@ -1133,6 +1165,8 @@ function compareSingleModelFact({
       summary: `${label} changed from "${oldFact.value}" to "${newFact.value}".`,
       severity,
       confidenceScore: Math.min(oldFact.confidence_score, newFact.confidence_score),
+      oldValue: oldFact.value,
+      newValue: newFact.value,
       whyItMatters,
       evidence: [...modelFactEvidence(oldFact), ...modelFactEvidence(newFact)],
     } satisfies MeaningfulChange,
@@ -1177,6 +1211,8 @@ function compareModelSet({
       summary: `New ${label}: "${fact?.value ?? added[0]}".`,
       severity,
       confidenceScore: fact?.confidence_score ?? 0.68,
+      oldValue: null,
+      newValue: fact?.value ?? added[0],
       whyItMatters,
       evidence: modelFactEvidence(fact),
     });
@@ -1193,6 +1229,8 @@ function compareModelSet({
       summary: `${label} removed: "${fact?.value ?? removed[0]}".`,
       severity,
       confidenceScore: fact?.confidence_score ?? 0.68,
+      oldValue: fact?.value ?? removed[0],
+      newValue: null,
       whyItMatters,
       evidence: modelFactEvidence(fact),
     });
@@ -1349,18 +1387,47 @@ export function compareSnapshotAnalyses({
 
 export function createDetectedChangePayload(changes: MeaningfulChange[]) {
   const severity = highestSeverity(changes);
-  const primary = changes[0];
+  const changesWithValues = changes.filter(
+    (change) => change.oldValue !== undefined || change.newValue !== undefined,
+  );
 
-  if (!primary) {
+  if (!changesWithValues.length) {
     return null;
   }
 
+  const grouped =
+    changesWithValues.length > 1
+      ? [...changesWithValues].sort((a, b) =>
+          a.category.localeCompare(b.category) ||
+          b.confidenceScore - a.confidenceScore,
+        )
+      : changesWithValues;
+  const primary = grouped[0];
+
+  const categoryChanges = grouped.filter(
+    (change) => change.category === primary.category,
+  );
   const summary =
-    changes.length === 1
+    categoryChanges.length > 1
+      ? `${formatPageTypeFromCategory(primary.category)} changed with ${categoryChanges.length} verified updates.`
+      : changes.length === 1
       ? primary.summary
       : `${primary.summary} ${changes.length - 1} other meaningful change${
           changes.length === 2 ? "" : "s"
         } detected.`;
+  const evidenceJson = {
+    primary_evidence: primary.evidence,
+    changes: grouped.map((change) => ({
+      category: change.category,
+      change_type: change.changeType,
+      summary: change.summary,
+      old_value: change.oldValue ?? null,
+      new_value: change.newValue ?? null,
+      why_it_matters: change.whyItMatters,
+      confidence_score: change.confidenceScore,
+      evidence: change.evidence,
+    })),
+  };
 
   return {
     diff_summary: `${summary} ${primary.whyItMatters}`,
@@ -1369,10 +1436,25 @@ export function createDetectedChangePayload(changes: MeaningfulChange[]) {
     confidence_score: primary.confidenceScore,
     category: primary.category,
     evidence_text: primary.evidence[0]?.evidence_text ?? null,
-    old_value: null,
-    new_value: null,
-    evidence_json: JSON.parse(JSON.stringify(primary.evidence)) as Json,
+    old_value: primary.oldValue ?? null,
+    new_value: primary.newValue ?? null,
+    evidence_json: JSON.parse(JSON.stringify(evidenceJson)) as Json,
   };
+}
+
+function formatPageTypeFromCategory(category: MeaningfulChange["category"]) {
+  switch (category) {
+    case "cta":
+      return "CTA strategy";
+    case "features":
+      return "Feature signals";
+    case "changelog":
+      return "Update activity";
+    case "availability":
+      return "Page availability";
+    default:
+      return category.charAt(0).toUpperCase() + category.slice(1);
+  }
 }
 
 export function formatPageType(pageType: PageType) {

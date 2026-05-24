@@ -3,6 +3,7 @@ import type { Database, Json } from "@/lib/database.types";
 import { summarizeIntelligence } from "@/lib/ai/intelligence-summary";
 import { discoverCompetitorPages } from "@/lib/crawler/discovery";
 import { analyzePageIntelligence } from "@/lib/intelligence/analyze";
+import { buildBusinessProfile } from "@/lib/intelligence/business-profile";
 import type { PageIntelligence } from "@/lib/intelligence/types";
 import {
   buildProductRecommendations,
@@ -166,6 +167,10 @@ export async function analyzeUserProduct({
       userId,
     });
     const facts = intelligencePages.flatMap((page) => page.facts);
+    const businessProfile = buildBusinessProfile({
+      name: productName,
+      pages: intelligencePages,
+    });
     const warnings = unique([
       ...intelligencePages.flatMap((page) => page.warnings),
       ...summary.warnings,
@@ -177,7 +182,10 @@ export async function analyzeUserProduct({
       .insert({
         user_product_id: productId,
         user_id: userId,
-        summary_json: toJson(summary),
+        summary_json: toJson({
+          ...summary,
+          business_profile: businessProfile,
+        }),
         structured_facts_json: toJson(facts),
         analyzed_pages: toJson(analyzedPagePayload(intelligencePages)),
         warnings,
