@@ -7,7 +7,7 @@
     },
     {
       "path": "/api/demo-examples/refresh",
-      "schedule": "0 */12 * * *"
+      "schedule": "30 6 * * *"
     },
     {
       "path": "/api/weekly-digest",
