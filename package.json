@@ -11,6 +11,7 @@
     "test:phase11": "node scripts/phase11-checks.mjs",
     "test:v4:real": "node scripts/final-v4-real-world.mjs",
     "test:v6:validation": "node scripts/final-v6-validation.mjs",
+    "test:v7:prelaunch": "node scripts/final-v7-prelaunch.mjs",
     "prelaunch:scorecard": "node scripts/prelaunch-scorecard.mjs"
   },
   "dependencies": {

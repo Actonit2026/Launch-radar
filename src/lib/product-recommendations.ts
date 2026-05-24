@@ -590,8 +590,9 @@ export function buildProductRecommendations(
     ctaRecommendation(input),
     positioningRecommendation(input),
   ].filter((item): item is ProductRecommendationDraft => Boolean(item));
+  const sorted = recommendations.sort((a, b) => b.confidence - a.confidence);
+  const keepCount =
+    sorted.length <= 1 ? sorted.length : Math.max(1, Math.floor(sorted.length * 0.7));
 
-  return recommendations
-    .sort((a, b) => b.confidence - a.confidence)
-    .slice(0, 3);
+  return sorted.slice(0, keepCount).slice(0, 3);
 }

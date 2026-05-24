@@ -15,6 +15,9 @@ const featureSignalPattern =
 const rejectedFeaturePattern =
   /\b(?:pricing|price|free|contact sales|book a demo|sign up|get started|start free|start trial|privacy|terms|cookie|copyright|learn more|live demo|view demo|copy to clipboard|testimonial|customer story|co-founder|founder|ceo|cto|people ❤️|people love)\b/i;
 
+const softRejectedFeaturePattern =
+  /\b(?:review|rated|stars|former .* lead|people .{0,4} love|people .{0,4} plausible|ready to|join us|why you should|it'?s time to)\b/i;
+
 function featureNameFromLine(line: string) {
   const cleaned = line
     .replace(/\s+(?:learn more|read more|get started|try free)$/i, "")
@@ -25,8 +28,8 @@ function featureNameFromLine(line: string) {
     cleaned.length > 90 ||
     /^\d{4}(?:-\d{4})?$/.test(cleaned) ||
     /^(?:import|const|function|npm|curl)\b/i.test(cleaned) ||
-    (rejectedFeaturePattern.test(cleaned) &&
-      !featureSignalPattern.test(cleaned))
+    softRejectedFeaturePattern.test(cleaned) ||
+    (rejectedFeaturePattern.test(cleaned) && !featureSignalPattern.test(cleaned))
   ) {
     return null;
   }

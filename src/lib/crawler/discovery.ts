@@ -40,7 +40,7 @@ export type DiscoveredPage = {
   scrape: ScrapedPage;
 };
 
-const sitemapTimeoutMs = 8000;
+const sitemapTimeoutMs = 3000;
 
 const fallbackPaths = [
   "/",
@@ -339,10 +339,14 @@ async function sitemapCandidates(baseUrl: string) {
     canonicalizeUrl(path, baseUrl),
   );
   const discoveredUrls: string[] = [];
+  const sitemapXmlResults = await Promise.all(
+    sitemapUrls.map(async (sitemapUrl) => ({
+      sitemapUrl,
+      xml: await fetchText(sitemapUrl),
+    })),
+  );
 
-  for (const sitemapUrl of sitemapUrls) {
-    const xml = await fetchText(sitemapUrl);
-
+  for (const { xml } of sitemapXmlResults) {
     if (!xml) {
       continue;
     }
@@ -354,13 +358,13 @@ async function sitemapCandidates(baseUrl: string) {
 
     discoveredUrls.push(...locs.filter((url) => !/\.xml(?:\?|$)/i.test(url)));
 
-    for (const nestedSitemap of nestedSitemaps) {
-      if (!sameSite(nestedSitemap, baseUrl)) {
-        continue;
-      }
+    const nestedXmlResults = await Promise.all(
+      nestedSitemaps
+        .filter((nestedSitemap) => sameSite(nestedSitemap, baseUrl))
+        .map(fetchText),
+    );
 
-      const nestedXml = await fetchText(nestedSitemap);
-
+    for (const nestedXml of nestedXmlResults) {
       if (nestedXml) {
         discoveredUrls.push(...parseSitemapUrls(nestedXml));
       }
@@ -390,8 +394,23 @@ function selectCandidatesToScrape(candidates: PageCandidate[]) {
     (candidate) =>
       candidate.source === "homepage" || candidate.source === "submitted",
   );
+  const strategicTypes: CandidatePageType[] = [
+    "pricing",
+    "features",
+    "product",
+    "changelog",
+    "docs",
+  ];
+  const strategic = strategicTypes
+    .map((pageType) =>
+      ranked.find((candidate) => candidate.pageType === pageType),
+    )
+    .filter((candidate): candidate is ClassifiedCandidate =>
+      Boolean(candidate),
+    );
   const selected = unique([
     ...required.map((candidate) => candidate.url),
+    ...strategic.map((candidate) => candidate.url),
     ...ranked.map((candidate) => candidate.url),
   ]).slice(0, maxInitialCandidatePages());
 
@@ -481,6 +500,7 @@ export async function discoverCompetitorPages(
 ) {
   const candidates = new Map<string, PageCandidate>();
   const homepageUrl = canonicalizeUrl("/", baseUrl);
+  const sitemapDiscoveredPromise = sitemapCandidates(baseUrl);
 
   addCandidate(candidates, { url: homepageUrl, source: "homepage" }, baseUrl);
 
@@ -507,7 +527,7 @@ export async function discoverCompetitorPages(
     );
   }
 
-  const sitemapDiscovered = await sitemapCandidates(baseUrl);
+  const sitemapDiscovered = await sitemapDiscoveredPromise;
   sitemapDiscovered.forEach((candidate) =>
     addCandidate(candidates, candidate, baseUrl),
   );
