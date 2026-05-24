@@ -84,7 +84,7 @@ The current build also includes:
 - URL-first competitor setup with evidence-backed page discovery and structured analysis
 - Meaningful change detection that ignores casing, whitespace, punctuation, boilerplate, and raw HTML noise
 - Cached real homepage examples so public visitors do not trigger scans
-- Business plan support with fair-use competitor limits, 6-hour refreshes, priority queueing, and higher scan/render allowances
+- Business plan support with up to 999 competitors, 6-hour refreshes, priority queueing, and higher scan/render allowances
 - Improved signup, login, email confirmation, forgot-password, and reset-password flows
 - Free and Pro plan limits, upgrade prompts, and Stripe Checkout/Portal wiring
 - Your Product analysis with evidence-backed competitor comparison recommendations

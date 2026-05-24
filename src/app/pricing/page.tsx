@@ -50,8 +50,8 @@ export default async function PricingPage() {
         </h1>
         <p className="mt-4 max-w-2xl text-base leading-7 text-ink/65">
           Free users can build a trustworthy baseline. Pro monitors serious
-          competitors. Business scales competitive intelligence within fair-use
-          limits.
+          competitors. Business raises limits for larger watchlists and faster
+          refreshes.
         </p>
       </section>
 
@@ -78,7 +78,7 @@ export default async function PricingPage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-2xl font-semibold text-ink">Pro</h2>
             <span className="rounded-full bg-moss/10 px-3 py-1 text-xs font-semibold text-moss">
-              Live billing
+              Popular
             </span>
           </div>
           <p className="mt-3 text-4xl font-semibold text-ink">EUR 19</p>
@@ -150,7 +150,7 @@ export default async function PricingPage() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="text-2xl font-semibold text-ink">Business</h2>
             <span className="rounded-full bg-ink px-3 py-1 text-xs font-semibold text-white">
-              Fair use
+              Higher limits
             </span>
           </div>
           <p className="mt-3 text-4xl font-semibold text-ink">EUR 49</p>
@@ -159,10 +159,11 @@ export default async function PricingPage() {
             Annual: EUR 490/year, about two months free.
           </p>
           <ul className="mt-6 space-y-3 text-sm leading-6 text-ink/70">
-            <li>Unlimited competitors within fair use</li>
+            <li>Track up to 999 competitors</li>
             <li>6-hour refresh target and priority queue</li>
-            <li>Unlimited own product analysis within fair use</li>
-            <li>Browser rendering allowance and AI-enhanced summaries</li>
+            <li>Up to 25 scans and product analyses per day</li>
+            <li>12 browser-rendered page checks per day</li>
+            <li>AI-enhanced summaries with evidence-backed facts</li>
             <li>Weekly digest, shareable reports, and exports when available</li>
           </ul>
           {isBusiness && profile?.billing_customer_id ? (
