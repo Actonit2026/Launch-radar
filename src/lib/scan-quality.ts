@@ -3,6 +3,7 @@ import type { PageIntelligence, StructuredFact } from "@/lib/intelligence/types"
 
 export type ScanCompletenessStatus = "complete" | "partial" | "limited";
 export type ScanQualityLabel = "high" | "medium" | "limited";
+export type ScanDeliveryStatus = "useful" | "limited" | "failed";
 export type ScanStageName =
   | "fetch"
   | "discovery"
@@ -17,12 +18,23 @@ export type ScanStageTiming = {
   status: "within_budget" | "over_budget";
 };
 
+export type ProgressiveScanStage = {
+  name: "overview" | "positioning_cta" | "pricing_features" | "deep_discovery";
+  target_ms: number;
+  status: "ready" | "still_scanning" | "limited";
+  message: string;
+};
+
 export type ScanQualitySummary = {
   score: number;
   label: ScanQualityLabel;
   status: ScanCompletenessStatus;
+  delivery_status: ScanDeliveryStatus;
   alerts_allowed: boolean;
   confidence_impact: string;
+  time_to_useful_insight_ms: number | null;
+  dashboard_complete_target_ms: number;
+  progressive_stages: ProgressiveScanStage[];
   pages_attempted: number;
   pages_analyzed: number;
   successful_pages: number;
@@ -118,24 +130,28 @@ export function measureStage(
   };
 }
 
-function speedScore(durationMs: number) {
-  if (durationMs <= 4000) {
+function usefulInsightSpeedScore(durationMs: number | null) {
+  if (durationMs === null) {
+    return 0;
+  }
+
+  if (durationMs <= 1500) {
     return 20;
   }
 
-  if (durationMs <= 8000) {
+  if (durationMs <= 3000) {
     return 18;
   }
 
-  if (durationMs <= 12000) {
-    return 12;
+  if (durationMs <= 5000) {
+    return 14;
   }
 
-  if (durationMs <= 20000) {
-    return 6;
+  if (durationMs <= 8000) {
+    return 8;
   }
 
-  return 0;
+  return 3;
 }
 
 function confidenceValue(fact: StructuredFact) {
@@ -201,6 +217,10 @@ function categoryCoverage(pages: PageIntelligence[]) {
       Number(positioningFound) +
       Number(ctaFound) +
       Number(featuresFound),
+    pricingFound,
+    positioningFound,
+    ctaFound,
+    featuresFound,
     changelogFound,
   };
 }
@@ -232,6 +252,106 @@ function confidenceImpact({
   return `${categoryText}${failureText}; results are useful but confidence is downgraded.`;
 }
 
+function scanDeliveryStatus({
+  pagesAnalyzed,
+  positioningFound,
+  ctaFound,
+  additionalUsefulDimension,
+}: {
+  pagesAnalyzed: number;
+  positioningFound: boolean;
+  ctaFound: boolean;
+  additionalUsefulDimension: boolean;
+}): ScanDeliveryStatus {
+  if (!pagesAnalyzed) {
+    return "failed";
+  }
+
+  if (positioningFound && ctaFound && additionalUsefulDimension) {
+    return "useful";
+  }
+
+  return "limited";
+}
+
+function stageDuration(stageTimings: ScanStageTiming[], stages: ScanStageName[]) {
+  const stageSet = new Set(stages);
+
+  return stageTimings
+    .filter((timing) => stageSet.has(timing.stage))
+    .reduce((sum, timing) => sum + timing.duration_ms, 0);
+}
+
+function usefulInsightMs({
+  deliveryStatus,
+  durationMs,
+  stageTimings,
+}: {
+  deliveryStatus: ScanDeliveryStatus;
+  durationMs: number;
+  stageTimings: ScanStageTiming[];
+}) {
+  if (deliveryStatus === "failed") {
+    return null;
+  }
+
+  const measured = stageDuration(stageTimings, ["discovery", "fetch", "extraction"]);
+
+  return measured > 0 ? measured : durationMs;
+}
+
+function progressiveStages({
+  deliveryStatus,
+  categories,
+}: {
+  deliveryStatus: ScanDeliveryStatus;
+  categories: ReturnType<typeof categoryCoverage>;
+}): ProgressiveScanStage[] {
+  return [
+    {
+      name: "overview",
+      target_ms: 1500,
+      status: deliveryStatus === "failed" ? "limited" : "ready",
+      message:
+        deliveryStatus === "failed"
+          ? "Website availability could not be verified."
+          : "Overview and availability are ready.",
+    },
+    {
+      name: "positioning_cta",
+      target_ms: 3000,
+      status:
+        categories.positioningFound && categories.ctaFound
+          ? "ready"
+          : "limited",
+      message:
+        categories.positioningFound && categories.ctaFound
+          ? "Positioning and primary CTA are ready."
+          : "Positioning or CTA evidence is limited.",
+    },
+    {
+      name: "pricing_features",
+      target_ms: 5000,
+      status:
+        categories.pricingFound && categories.featuresFound
+          ? "ready"
+          : "still_scanning",
+      message:
+        categories.pricingFound && categories.featuresFound
+          ? "Pricing and feature evidence are ready."
+          : "Pricing or feature evidence may need targeted background checks.",
+    },
+    {
+      name: "deep_discovery",
+      target_ms: 8000,
+      status: categories.changelogFound ? "ready" : "still_scanning",
+      message: categories.changelogFound
+        ? "Extended discovery found update signals."
+        : "Extended discovery can continue in the background.",
+    },
+  ];
+}
+
 export function buildIntelligenceScanQuality({
   pagesAttempted,
   pages,
@@ -247,23 +367,39 @@ export function buildIntelligenceScanQuality({
     pagesAttempted - successfulPages,
     scrapes.filter((scrape) => !scrape.ok).length,
   );
-  const successRatio =
-    pagesAttempted > 0 ? successfulPages / Math.max(1, pagesAttempted) : 0;
   const categories = categoryCoverage(pages);
-  const pageCoverageScore = successRatio * 12;
-  const categoryScore = (categories.criticalCompleted / criticalCategories.length) * 18;
-  const confidenceScore = averageFactConfidence(pages) * 25;
-  const sectionScore = Math.min(15, pages.length * 3 + categories.completed.length * 2);
-  const availabilityScore = successRatio * 10;
+  const deliveryStatus = scanDeliveryStatus({
+    pagesAnalyzed: pages.length,
+    positioningFound: categories.positioningFound,
+    ctaFound: categories.ctaFound,
+    additionalUsefulDimension:
+      categories.pricingFound || categories.featuresFound || categories.changelogFound,
+  });
+  const insightMs = usefulInsightMs({
+    deliveryStatus,
+    durationMs,
+    stageTimings,
+  });
+  const usefulnessScore =
+    deliveryStatus === "useful"
+      ? 35
+      : deliveryStatus === "limited"
+        ? Math.max(12, (categories.criticalCompleted / criticalCategories.length) * 28)
+        : 0;
+  const clarityScore = Math.max(
+    0,
+    25 -
+      categories.missingCategories.length * 3 -
+      Math.min(8, warnings.length),
+  );
+  const correctnessScore = averageFactConfidence(pages) * 20;
   const warningPenalty = Math.min(10, warnings.length * 1.5);
   const score = clampScore(
-    pageCoverageScore +
-      categoryScore +
-      confidenceScore +
-      speedScore(durationMs) +
-      sectionScore +
-      availabilityScore -
-      warningPenalty,
+    usefulnessScore +
+      clarityScore +
+      correctnessScore +
+      usefulInsightSpeedScore(insightMs) -
+      warningPenalty * 0.4,
   );
   const status = statusForScore({
     score,
@@ -291,12 +427,16 @@ export function buildIntelligenceScanQuality({
     score,
     label,
     status,
+    delivery_status: deliveryStatus,
     alerts_allowed: alertsAllowed,
     confidence_impact: confidenceImpact({
       status,
       missingCategories: categories.missingCategories,
       failedPages,
     }),
+    time_to_useful_insight_ms: insightMs,
+    dashboard_complete_target_ms: 8000,
+    progressive_stages: progressiveStages({ deliveryStatus, categories }),
     pages_attempted: pagesAttempted,
     pages_analyzed: pages.length,
     successful_pages: successfulPages,
@@ -326,11 +466,15 @@ export function buildMonitoringScanQuality({
   const successRatio =
     pagesAttempted > 0 ? successfulPages / Math.max(1, pagesAttempted) : 1;
   const failurePenalty = failedPages * 8;
+  const deliveryStatus: ScanDeliveryStatus = successfulPages
+    ? "useful"
+    : "failed";
+  const insightMs = deliveryStatus === "useful" ? durationMs : null;
   const score = clampScore(
-    successRatio * 50 +
-      speedScore(durationMs) +
-      (failedPages ? 8 : 20) +
-      Math.min(10, successfulPages * 2.5) -
+    successRatio * 35 +
+      25 +
+      (failedPages ? 12 : 20) +
+      usefulInsightSpeedScore(insightMs) -
       failurePenalty -
       Math.min(10, warnings.length * 1.5),
   );
@@ -355,11 +499,46 @@ export function buildMonitoringScanQuality({
     score,
     label: labelForScore(score),
     status,
+    delivery_status: deliveryStatus,
     alerts_allowed: !alertBlockedByPartial,
     confidence_impact:
       status === "complete"
         ? "All monitored pages fetched successfully; change alerts can be trusted."
         : "Some monitored pages failed or were slow; alerting is downgraded until a retry succeeds.",
+    time_to_useful_insight_ms: insightMs,
+    dashboard_complete_target_ms: 8000,
+    progressive_stages: [
+      {
+        name: "overview",
+        target_ms: 1500,
+        status: successfulPages ? "ready" : "limited",
+        message: successfulPages
+          ? "Fresh page availability is ready."
+          : "No monitored page was reachable.",
+      },
+      {
+        name: "positioning_cta",
+        target_ms: 3000,
+        status: successfulPages ? "ready" : "limited",
+        message: successfulPages
+          ? "Change comparison is ready for reachable pages."
+          : "Change comparison needs at least one reachable page.",
+      },
+      {
+        name: "pricing_features",
+        target_ms: 5000,
+        status: failedPages ? "still_scanning" : "ready",
+        message: failedPages
+          ? "Failed pages should be retried without rerunning successful pages."
+          : "All fetched monitored pages are ready.",
+      },
+      {
+        name: "deep_discovery",
+        target_ms: 8000,
+        status: "still_scanning",
+        message: "Extended discovery is not required for scheduled freshness.",
+      },
+    ],
     pages_attempted: pagesAttempted,
     pages_analyzed: successfulPages,
     successful_pages: successfulPages,

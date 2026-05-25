@@ -46,7 +46,9 @@ export function RunScanButton() {
 
   async function runScan() {
     setPending(true);
-    setMessage(null);
+    setMessage(
+      "Understanding pages... checking pricing... checking updates... comparing competitors...",
+    );
 
     try {
       const response = await fetch("/api/scan", {
@@ -59,13 +61,16 @@ export function RunScanButton() {
       }
 
       if (payload.queued) {
-        setMessage(payload.message ?? "Scan queued. It will run shortly.");
+        setMessage(
+          payload.message ??
+            "Scan queued. Useful results will appear first; deeper checks can finish in the background.",
+        );
         router.refresh();
         return;
       }
 
       setMessage(
-        `Checked ${payload.checked ?? 0}, saved ${
+        `Useful scan complete. Checked ${payload.checked ?? 0}, saved ${
           payload.snapshotsCreated ?? 0
         } snapshots, sent ${payload.notificationsSent ?? 0} alerts, deferred ${
           payload.deferred ?? 0
@@ -87,7 +92,7 @@ export function RunScanButton() {
         onClick={runScan}
         className="inline-flex h-11 items-center justify-center rounded-md border border-ink/15 bg-white px-5 text-sm font-semibold text-ink transition hover:border-ink/35 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {pending ? "Scanning..." : "Scan now"}
+        {pending ? "Checking..." : "Scan now"}
       </button>
       {message ? (
         <p className="max-w-60 text-xs leading-5 text-ink/55">{message}</p>

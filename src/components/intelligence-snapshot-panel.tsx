@@ -231,18 +231,22 @@ function ScanQualityBadge({ quality }: { quality: ScanQualitySummary | null }) {
     return null;
   }
 
+  const label =
+    quality.delivery_status === "useful"
+      ? "Useful scan"
+      : quality.delivery_status === "failed"
+        ? "Failed scan"
+        : quality.label === "medium"
+          ? "Partial scan"
+          : "Limited scan";
+
   return (
     <span
       className={`rounded-full px-3 py-1 text-xs font-semibold ${qualityClassName(
         quality,
       )}`}
     >
-      {quality.label === "high"
-        ? "High quality"
-        : quality.label === "medium"
-          ? "Medium quality"
-          : "Limited scan"}{" "}
-      {quality.score}/100
+      {label} {quality.score}/100
     </span>
   );
 }
@@ -258,12 +262,26 @@ function ScanQualityDetails({
     return null;
   }
 
+  const pendingStages = quality.progressive_stages.filter(
+    (stage) => stage.status !== "ready",
+  );
+
   return (
     <div className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
       <p className="font-semibold text-ink">
-        {quality.status === "limited" ? "Limited scan" : "Partial scan"}
+        {quality.delivery_status === "useful"
+          ? "Useful scan"
+          : quality.delivery_status === "failed"
+            ? "Scan failed"
+            : "Limited scan"}
       </p>
       <p className="mt-1">{quality.confidence_impact}</p>
+      {typeof quality.time_to_useful_insight_ms === "number" ? (
+        <p className="mt-2">
+          Useful insight after {quality.time_to_useful_insight_ms}ms. Full
+          target: {quality.dashboard_complete_target_ms}ms.
+        </p>
+      ) : null}
       {quality.completed.length ? (
         <p className="mt-2">
           Completed: {quality.completed.slice(0, 5).join(", ")}.
@@ -271,6 +289,11 @@ function ScanQualityDetails({
       ) : null}
       {quality.skipped.length ? (
         <p className="mt-1">Skipped: {quality.skipped.slice(0, 5).join(", ")}.</p>
+      ) : null}
+      {pendingStages.length ? (
+        <p className="mt-1">
+          Still scanning: {pendingStages.map((stage) => stage.message).join(" ")}
+        </p>
       ) : null}
     </div>
   );

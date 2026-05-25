@@ -127,6 +127,7 @@ export function AddCompetitorDialog({
                     <p>Fetching homepage...</p>
                     <p>Discovering internal pages...</p>
                     <p>Finding pricing, features, and update pages...</p>
+                    <p>Preparing verified insight as soon as enough evidence is ready...</p>
                     <p>Extracting verified facts...</p>
                     <p>Generating intelligence snapshot...</p>
                     <p>Saving baseline...</p>

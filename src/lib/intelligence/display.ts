@@ -2,7 +2,9 @@ import type { CompetitorIntelligenceSnapshot, Json } from "@/lib/database.types"
 import type { BusinessProfile } from "@/lib/intelligence/business-profile";
 import type { Confidence } from "@/lib/intelligence/types";
 import type {
+  ProgressiveScanStage,
   ScanCompletenessStatus,
+  ScanDeliveryStatus,
   ScanQualityLabel,
   ScanQualitySummary,
 } from "@/lib/scan-quality";
@@ -131,6 +133,43 @@ function scanCompletenessStatus(value: unknown): ScanCompletenessStatus {
     : "limited";
 }
 
+function scanDeliveryStatus(value: unknown): ScanDeliveryStatus {
+  return value === "useful" || value === "limited" || value === "failed"
+    ? value
+    : "limited";
+}
+
+function progressiveStage(value: unknown): ProgressiveScanStage | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const name =
+    value.name === "overview" ||
+    value.name === "positioning_cta" ||
+    value.name === "pricing_features" ||
+    value.name === "deep_discovery"
+      ? value.name
+      : null;
+  const status =
+    value.status === "ready" ||
+    value.status === "still_scanning" ||
+    value.status === "limited"
+      ? value.status
+      : null;
+
+  if (!name || !status) {
+    return null;
+  }
+
+  return {
+    name,
+    status,
+    target_ms: numberOrDefault(value.target_ms, 0),
+    message: stringOrNull(value.message) ?? "Scan stage status unavailable.",
+  };
+}
+
 function parseScanQuality(value: unknown): ScanQualitySummary | null {
   if (!isRecord(value)) {
     return null;
@@ -142,10 +181,24 @@ function parseScanQuality(value: unknown): ScanQualitySummary | null {
     score,
     label: scanQualityLabel(value.label),
     status: scanCompletenessStatus(value.status),
+    delivery_status: scanDeliveryStatus(value.delivery_status),
     alerts_allowed: value.alerts_allowed === true,
     confidence_impact:
       stringOrNull(value.confidence_impact) ??
       "Scan confidence was not recorded for this snapshot.",
+    time_to_useful_insight_ms:
+      typeof value.time_to_useful_insight_ms === "number"
+        ? value.time_to_useful_insight_ms
+        : null,
+    dashboard_complete_target_ms: numberOrDefault(
+      value.dashboard_complete_target_ms,
+      8000,
+    ),
+    progressive_stages: Array.isArray(value.progressive_stages)
+      ? value.progressive_stages
+          .map(progressiveStage)
+          .filter((item): item is ProgressiveScanStage => Boolean(item))
+      : [],
     pages_attempted: numberOrDefault(value.pages_attempted, 0),
     pages_analyzed: numberOrDefault(value.pages_analyzed, 0),
     successful_pages: numberOrDefault(value.successful_pages, 0),

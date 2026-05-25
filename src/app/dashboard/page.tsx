@@ -33,7 +33,7 @@ function setupStatusText(competitor: DashboardCompetitor) {
   }
 
   if (competitor.scan_status === "running") {
-    return "Setting up your first scan...";
+    return "Understanding public pages and preparing verified insight...";
   }
 
   if (competitor.lastCheckedAt) {

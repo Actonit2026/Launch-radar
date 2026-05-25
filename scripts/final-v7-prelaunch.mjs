@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import ts from "typescript";
@@ -535,6 +535,399 @@ function decisionFrictionIndex({ dashboardClarity, caseResults }) {
   return boundedScore(100 - average([dashboardClarity, 100 - pct(weakSignals, caseResults.length)]));
 }
 
+function evidenceStatus(facts) {
+  if (!facts.length) {
+    return "none";
+  }
+
+  const withEvidence = facts.filter(
+    (fact) => fact.source_url && fact.evidence_text,
+  ).length;
+
+  if (withEvidence === facts.length) {
+    return "complete";
+  }
+
+  return withEvidence ? "partial" : "missing";
+}
+
+function userValueScore({
+  status,
+  pricing,
+  positioning,
+  cta,
+  features,
+  baseline,
+  evidence,
+  durationMs,
+}) {
+  const score =
+    (status === "pass" ? 2 : status === "partial" ? 1 : 0) +
+    (pricing === "found" || pricing === "contact_sales" ? 1.5 : 0) +
+    (positioning === "useful" ? 1.5 : 0) +
+    (cta === "useful" ? 1 : 0) +
+    (features === "useful" ? 1 : 0) +
+    (baseline === "useful" ? 1 : 0) +
+    (evidence === "complete" ? 1 : evidence === "partial" ? 0.5 : 0) +
+    (durationMs < 3000 ? 1 : durationMs < 8000 ? 0.5 : 0);
+
+  return Math.max(0, Math.min(10, Number(score.toFixed(1))));
+}
+
+function preciseFailureReason({
+  failure,
+  primary,
+  pricing,
+  positioning,
+  cta,
+  features,
+}) {
+  const warnings = (primary.warnings ?? []).join(" ");
+
+  if (/No useful public pages found/i.test(failure)) {
+    return primary.warnings?.length
+      ? `all discovered candidate pages failed or returned no meaningful static text: ${primary.warnings.join("; ")}`
+      : "all discovered candidate pages failed or returned no meaningful static text";
+  }
+
+  if (/Pricing expected visible/i.test(failure)) {
+    if (/timeout/i.test(warnings)) {
+      return "pricing was expected in the public fixture, but one or more pricing candidates timed out before deterministic extraction";
+    }
+
+    if (/JavaScript-heavy|app shell/i.test(warnings)) {
+      return "pricing likely requires client-side rendering; static HTML did not expose a reliable price";
+    }
+
+    if (pricing === "contact_sales") {
+      return "pricing expected as visible, but extracted evidence only supported a contact-sales pricing path";
+    }
+
+    return "pricing expected as visible, but no currency-plus-billing candidate passed deterministic evidence rules";
+  }
+
+  if (/Pricing expected contact_sales/i.test(failure)) {
+    return "contact-sales fixture produced a visible-price classification, indicating pricing precision risk for enterprise pages";
+  }
+
+  if (/CTA missing or polluted/i.test(failure)) {
+    const primaryCta = primary.profile?.conversion.primary_cta;
+
+    return primaryCta
+      ? `CTA did not pass usefulness check; extracted CTA was "${primaryCta}", likely passive, nav, or low-intent`
+      : "no non-auth hero/link/button CTA survived ranking";
+  }
+
+  if (/Feature evidence weak/i.test(failure)) {
+    const featureCount = primary.profile?.product_capabilities.features.length ?? 0;
+
+    return `only ${featureCount} reliable feature facts were extracted; target is at least 3 clear feature/product signals`;
+  }
+
+  if (/Positioning weak or generic/i.test(failure)) {
+    return positioning === "weak"
+      ? "positioning lacked a clear category, target customer, use case, or non-generic value proposition"
+      : failure;
+  }
+
+  if (/Two competitor baselines missing/i.test(failure)) {
+    return "comparison context was incomplete because fewer than two same-category competitor baselines produced facts";
+  }
+
+  if (/Baseline\/watchlist weak/i.test(failure)) {
+    return "baseline did not produce enough structured profile hashes or watchlist suggestions";
+  }
+
+  if (/Recommendation weak/i.test(failure)) {
+    return "recommendation was suppressed or lacked enough competitor evidence, novelty, or adversarial-review strength";
+  }
+
+  return failure;
+}
+
+function limitationsForCase({
+  primary,
+  pricing,
+  cta,
+  features,
+  positioning,
+  status,
+}) {
+  if (status === "pass") {
+    return [];
+  }
+
+  const limitations = [];
+  const warnings = (primary.warnings ?? []).join(" ");
+
+  if (!primary.pages_successful) {
+    limitations.push("static analyzer could not obtain useful public HTML from selected candidates");
+  }
+
+  if (pricing !== "found" && pricing !== "contact_sales") {
+    limitations.push("pricing may require deeper discovery, interaction, or client-rendered content");
+  }
+
+  if (cta === "weak") {
+    limitations.push("CTA ranking may miss hero actions or reject passive but intentional CTAs");
+  }
+
+  if (features === "weak") {
+    limitations.push("feature extraction needs clearer product sections and does not infer features from vague marketing copy");
+  }
+
+  if (positioning === "weak") {
+    limitations.push("positioning extraction rejects broad slogans without category or audience evidence");
+  }
+
+  if (/sitemap/i.test(warnings)) {
+    limitations.push("sitemap expansion is budgeted and may skip slow sitemap branches");
+  }
+
+  if (/JavaScript-heavy|app shell/i.test(warnings)) {
+    limitations.push("static analyzer cannot see client-rendered sections without browser fallback");
+  }
+
+  if (/403|blocked|robots/i.test(warnings)) {
+    limitations.push("site blocks automated fetches or robots rules prevent analysis");
+  }
+
+  if (primary.duration_ms > 8000) {
+    limitations.push("scan exceeded the V9 useful-insight time budget");
+  }
+
+  return Array.from(new Set(limitations));
+}
+
+function fixForCase({ pricing, cta, features, positioning, primary }) {
+  if (!primary.pages_successful) {
+    return {
+      recommended_fix:
+        "Add blocked/JS-heavy classification plus background browser fallback for admin-reviewed cases.",
+      fix_difficulty: "high",
+      fix_priority: "high",
+    };
+  }
+
+  if (pricing !== "found" && pricing !== "contact_sales") {
+    return {
+      recommended_fix:
+        "Queue targeted pricing-only retries for pricing/plans/packages/FAQ candidates instead of rerunning full scans.",
+      fix_difficulty: "medium",
+      fix_priority: "high",
+    };
+  }
+
+  if (cta === "weak") {
+    return {
+      recommended_fix:
+        "Improve CTA precedence so hero and above-the-fold conversion links beat nav/footer/passive links.",
+      fix_difficulty: "low",
+      fix_priority: "high",
+    };
+  }
+
+  if (features === "weak") {
+    return {
+      recommended_fix:
+        "Tighten feature section detection and add table/card parsing without using testimonial/proof text.",
+      fix_difficulty: "medium",
+      fix_priority: "medium",
+    };
+  }
+
+  if (positioning === "weak") {
+    return {
+      recommended_fix:
+        "Add a stricter homepage hero/category fallback using title, meta description, H1, and first paragraph only.",
+      fix_difficulty: "low",
+      fix_priority: "medium",
+    };
+  }
+
+  if (primary.duration_ms > 8000) {
+    return {
+      recommended_fix:
+        "Deliver homepage-derived intelligence first and move deeper discovery to background retries.",
+      fix_difficulty: "medium",
+      fix_priority: "high",
+    };
+  }
+
+  return {
+    recommended_fix: "No immediate fix; monitor for regressions.",
+    fix_difficulty: "low",
+    fix_priority: "low",
+  };
+}
+
+function diagnosticStatus({ failures, primary }) {
+  if (!failures.length) {
+    return "pass";
+  }
+
+  if (!primary.pages_successful || primary.failures.length) {
+    return "fail";
+  }
+
+  return "partial";
+}
+
+function rootCauseForFailure(reason) {
+  if (/pricing.*timed out|time budget|exceeded/i.test(reason)) {
+    return "timeout / performance";
+  }
+
+  if (/pricing.*client-side|JavaScript|app shell/i.test(reason)) {
+    return "JS-rendering limitation";
+  }
+
+  if (/pricing expected|currency-plus-billing|contact-sales/i.test(reason)) {
+    return "pricing discovery or parsing failure";
+  }
+
+  if (/CTA/i.test(reason)) {
+    return "CTA ranking failure";
+  }
+
+  if (/feature/i.test(reason)) {
+    return "feature extraction noise or scarcity";
+  }
+
+  if (/positioning/i.test(reason)) {
+    return "positioning specificity failure";
+  }
+
+  if (/candidate pages failed|blocked|403|robots/i.test(reason)) {
+    return "blocked or unavailable site";
+  }
+
+  if (/comparison context|competitor baselines/i.test(reason)) {
+    return "comparison baseline coverage";
+  }
+
+  if (/baseline/i.test(reason)) {
+    return "baseline/watchlist coverage";
+  }
+
+  return "other diagnostic failure";
+}
+
+function rootCauseGroups(cases) {
+  const groups = new Map();
+
+  for (const item of cases) {
+    for (const reason of item.failure_reasons) {
+      const key = rootCauseForFailure(reason);
+      const group = groups.get(key) ?? {
+        root_cause: key,
+        affected_cases: 0,
+        severity: "medium",
+        examples: [],
+      };
+
+      group.affected_cases += 1;
+
+      if (group.examples.length < 5) {
+        group.examples.push(`${item.name}: ${reason}`);
+      }
+
+      groups.set(key, group);
+    }
+  }
+
+  return Array.from(groups.values())
+    .map((group) => {
+      const severe =
+        group.affected_cases >= 10 ||
+        /pricing|blocked|timeout|JS/.test(group.root_cause);
+
+      return {
+        ...group,
+        severity: severe ? "high" : group.affected_cases >= 5 ? "medium" : "low",
+        likely_root_cause: likelyRootCause(group.root_cause),
+        recommended_fix: groupFix(group.root_cause),
+        estimated_implementation_difficulty: groupDifficulty(group.root_cause),
+        expected_reliability_gain: groupGain(group.affected_cases),
+      };
+    })
+    .sort((a, b) => b.affected_cases - a.affected_cases);
+}
+
+function likelyRootCause(rootCause) {
+  const values = {
+    "pricing discovery or parsing failure":
+      "pricing pages are non-standard, require interaction, or expose prices in layouts the deterministic extractor does not yet model",
+    "CTA ranking failure":
+      "CTA extraction is still too dependent on detected links/buttons and can miss intended hero actions",
+    "feature extraction noise or scarcity":
+      "feature sections are sparse, card-like, or mixed with testimonial/proof content",
+    "positioning specificity failure":
+      "homepage copy lacks explicit category/audience/use-case signals or those signals are not prioritized",
+    "blocked or unavailable site":
+      "target site blocks automated requests, exposes an empty app shell, or returns unusable static HTML",
+    "timeout / performance":
+      "scan waits on slow external pages before user-visible value is delivered",
+    "JS-rendering limitation":
+      "important content is rendered client-side and absent from static HTML",
+    "comparison baseline coverage":
+      "same-category comparator sites failed or returned too little evidence",
+    "baseline/watchlist coverage":
+      "structured facts were too sparse to create a useful watchlist",
+  };
+
+  return values[rootCause] ?? "uncategorized validation failure";
+}
+
+function groupFix(rootCause) {
+  const values = {
+    "pricing discovery or parsing failure":
+      "add targeted pricing-only retries and support plan tables/toggles without blocking first insight",
+    "CTA ranking failure":
+      "prioritize hero/above-the-fold CTAs over nav/footer and classify passive CTAs separately",
+    "feature extraction noise or scarcity":
+      "improve feature-card/table parsing and keep testimonial/proof text out of features",
+    "positioning specificity failure":
+      "limit fallback to title/meta/H1/hero/first paragraph and downgrade broad slogans",
+    "blocked or unavailable site":
+      "classify blocked/JS-heavy sites clearly and optionally retry in background with browser fallback",
+    "timeout / performance":
+      "decouple homepage insight from deep discovery and move slow pricing/docs/sitemap work to background",
+    "JS-rendering limitation":
+      "background browser fallback for JS-heavy pages with strict cost guard",
+    "comparison baseline coverage":
+      "cache comparator baselines and avoid treating missing comparators as product-analysis failure",
+    "baseline/watchlist coverage":
+      "generate watchlist from available dimensions and label missing dimensions explicitly",
+  };
+
+  return values[rootCause] ?? "inspect failed case manually";
+}
+
+function groupDifficulty(rootCause) {
+  if (/CTA ranking|positioning|baseline/.test(rootCause)) {
+    return "low";
+  }
+
+  if (/pricing|timeout|comparison|feature/.test(rootCause)) {
+    return "medium";
+  }
+
+  return "high";
+}
+
+function groupGain(affectedCases) {
+  if (affectedCases >= 12) {
+    return "high";
+  }
+
+  if (affectedCases >= 5) {
+    return "medium";
+  }
+
+  return "low";
+}
+
 async function runCounterExamples(analyzePageIntelligence, createDetectedChangePayload) {
   const base = {
     requestedUrl: "https://fixture.test",
@@ -633,7 +1026,7 @@ try {
     return originalFetch(input, init);
   };
 
-  const { discoverCompetitorPages } = require(path.join(
+  const { discoverCompetitorPages, getCandidateUrls } = require(path.join(
     outDir,
     "src/lib/crawler/discovery.js",
   ));
@@ -670,6 +1063,9 @@ try {
 
     try {
       const parsed = parseCompetitorUrl(scenario.url);
+      const candidateUrls = getCandidateUrls(parsed.baseUrl, {
+        submittedPageUrl: parsed.submittedPageUrl,
+      });
       const discovered = await discoverCompetitorPages(parsed.baseUrl, {
         submittedPageUrl: parsed.submittedPageUrl,
       });
@@ -686,6 +1082,9 @@ try {
         return {
           ...scenario,
           duration_ms: Date.now() - start,
+          pages_attempted: candidateUrls.length,
+          pages_successful: 0,
+          pages_failed: candidateUrls.length,
           pages: [],
           profile: null,
           facts: [],
@@ -703,6 +1102,9 @@ try {
       return {
         ...scenario,
         duration_ms: Date.now() - start,
+        pages_attempted: candidateUrls.length,
+        pages_successful: pages.length,
+        pages_failed: Math.max(0, candidateUrls.length - pages.length),
         pages,
         profile,
         facts: profileFacts(pages),
@@ -719,6 +1121,9 @@ try {
       return {
         ...scenario,
         duration_ms: Date.now() - start,
+        pages_attempted: 0,
+        pages_successful: 0,
+        pages_failed: 0,
         pages: [],
         profile: null,
         facts: [],
@@ -737,7 +1142,7 @@ try {
     return result;
   });
 
-  const caseResults = scenarios.map((scenario) => {
+  const caseResults = scenarios.map((scenario, index) => {
     const primary = analysisCache.get(scenario.url);
     const competitors = scenarioCompetitors(scenario).map((item) =>
       analysisCache.get(item.url),
@@ -774,27 +1179,87 @@ try {
       recommendation === "useful_or_absent" ? null : "Recommendation weak.",
       baseline === "useful" ? null : "Baseline/watchlist weak.",
     ].filter(Boolean);
+    const status = diagnosticStatus({ failures, primary });
+    const evidence = evidenceStatus(primary.facts);
+    const failureReasons = failures.map((failure) =>
+      preciseFailureReason({
+        failure,
+        primary,
+        pricing,
+        positioning,
+        cta,
+        features,
+      }),
+    );
+    const currentLimitations = limitationsForCase({
+      primary,
+      pricing,
+      cta,
+      features,
+      positioning,
+      status,
+    });
+    const fix = fixForCase({
+      pricing,
+      cta,
+      features,
+      positioning,
+      primary,
+    });
 
     return {
+      case_number: index + 1,
       name: scenario.name,
       url: scenario.url,
       category: scenario.category,
+      status,
       success: failures.length === 0,
+      analysis_duration_ms: primary.duration_ms,
+      pages_attempted: primary.pages_attempted ?? 0,
+      pages_successful: primary.pages_successful ?? primary.pages.length,
+      pages_failed: primary.pages_failed ?? 0,
       pricing,
+      pricing_status: pricing,
+      pricing_plans_detected: primary.profile?.monetization.plans.length ?? 0,
       expected_pricing: scenario.expectedPricing,
       pricing_false_positive: pricingFalsePositive(
         scenario.expectedPricing,
         pricing,
       ),
       positioning,
+      positioning_status: positioning,
       cta,
+      cta_status: cta,
       features,
+      feature_status: features,
+      changelog_status: primary.profile?.momentum.changelog_detected
+        ? "found"
+        : "not_detected",
+      availability_status: primary.profile?.availability.status ?? "failed",
+      evidence_status: evidence,
+      user_value_score_0_to_10: userValueScore({
+        status,
+        pricing,
+        positioning,
+        cta,
+        features,
+        baseline,
+        evidence,
+        durationMs: primary.duration_ms,
+      }),
       recommendation,
+      recommendation_titles: recommendations.map((item) => item.title),
+      recommendation_value_scores: recommendations
+        .map((item) => item.evidence_json?.trust?.recommendation_value_score)
+        .filter((value) => typeof value === "number"),
       confidence: primary.profile?.product_summary.confidence ?? "low",
       competitor_count: competitorSnapshots.length,
       baseline,
       duration_ms: primary.duration_ms,
       failures,
+      failure_reasons: failureReasons,
+      current_limitations: currentLimitations,
+      ...fix,
       warnings: primary.warnings,
     };
   });
@@ -1019,9 +1484,7 @@ try {
   restoreResolver();
   globalThis.fetch = originalFetch;
 
-  console.log(
-    JSON.stringify(
-      {
+  const report = {
         ok: true,
         ai_enabled: false,
         openai_calls: openAiCalls,
@@ -1030,6 +1493,32 @@ try {
         scorecard,
         final_scores: finalScores,
         gates,
+        diagnostic_cases: caseResults.map((item) => ({
+          case_number: item.case_number,
+          name: item.name,
+          url: item.url,
+          category: item.category,
+          status: item.status,
+          analysis_duration_ms: item.analysis_duration_ms,
+          pages_attempted: item.pages_attempted,
+          pages_successful: item.pages_successful,
+          pages_failed: item.pages_failed,
+          pricing_status: item.pricing_status,
+          pricing_plans_detected: item.pricing_plans_detected,
+          positioning_status: item.positioning_status,
+          cta_status: item.cta_status,
+          feature_status: item.feature_status,
+          changelog_status: item.changelog_status,
+          availability_status: item.availability_status,
+          evidence_status: item.evidence_status,
+          user_value_score_0_to_10: item.user_value_score_0_to_10,
+          failure_reasons: item.failure_reasons,
+          current_limitations: item.current_limitations,
+          recommended_fix: item.recommended_fix,
+          fix_difficulty: item.fix_difficulty,
+          fix_priority: item.fix_priority,
+        })),
+        root_cause_groups: rootCauseGroups(caseResults),
         launch_decision: Object.values(gates).every(Boolean)
           ? "READY TO SHIP"
           : "NOT READY",
@@ -1044,11 +1533,17 @@ try {
           dropoffs: uxLab.dropoffs,
         },
         improvements,
-      },
-      null,
-      2,
-    ),
-  );
+      };
+
+  if (process.env.FINAL_V9_OUTPUT_PATH) {
+    await writeFile(
+      path.resolve(rootDir, process.env.FINAL_V9_OUTPUT_PATH),
+      JSON.stringify(report, null, 2),
+      "utf8",
+    );
+  }
+
+  console.log(JSON.stringify(report, null, 2));
 } finally {
   await rm(outDir, { recursive: true, force: true });
 }

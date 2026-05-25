@@ -13,6 +13,8 @@
     "test:v6:validation": "node scripts/final-v6-validation.mjs",
     "test:v7:prelaunch": "node scripts/final-v7-prelaunch.mjs",
     "test:v8:reliability": "node scripts/final-v7-prelaunch.mjs",
+    "test:v9:diagnostic": "node scripts/final-v7-prelaunch.mjs",
+    "report:v9": "node scripts/final-v9-generate-reports.mjs",
     "prelaunch:scorecard": "node scripts/prelaunch-scorecard.mjs"
   },
   "dependencies": {
