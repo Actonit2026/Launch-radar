@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import { crawlerUserAgent } from "@/lib/crawler/robots";
 import type { PageType } from "@/lib/database.types";
 import { scrapePages, type ScrapedPage } from "@/lib/crawler/scraper";
+import { validateUrl } from "@/lib/url-safety.server";
 import { createDefaultMonitoredPages, isBlockedCrawlPath } from "@/lib/urls";
 
 type CandidatePageType = PageType | "product" | "docs" | "unknown";
@@ -305,11 +306,17 @@ function homepageLinkCandidates(homepage: ScrapedPage, baseUrl: string) {
 }
 
 async function fetchText(url: string) {
+  const safeUrl = await validateUrl(url).catch(() => null);
+
+  if (!safeUrl) {
+    return null;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), sitemapTimeoutMs);
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch(safeUrl, {
       redirect: "follow",
       signal: controller.signal,
       headers: {

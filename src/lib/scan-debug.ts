@@ -76,6 +76,7 @@ function compactScrape(scrape: ScrapedPage | null | undefined) {
     error_type: scrape.errorType ?? null,
     redirected: scrape.redirected ?? scrape.requestedUrl !== scrape.finalUrl,
     ok: scrape.ok,
+    scrape_method: scrape.scrape_method ?? (scrape.ok ? "fetch" : "failed"),
     rendering: scrape.rendering ?? "static",
     javascript_heavy: scrape.javascriptHeavy ?? false,
     warnings: scrape.warnings ?? [],

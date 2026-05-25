@@ -151,7 +151,7 @@ function pricingPlanFromPrice({
 }): PricingPlanModel {
   const normalized = fact.normalized_value;
   const evidence = evidenceFromFact(fact, "pricing");
-  const name = normalized?.plan ?? detectPlanName(fact.evidence_text, `Plan ${index + 1}`);
+  const name = normalized?.plan ?? detectPlanName(fact.evidence_text, "Public pricing");
   const billingType =
     normalized?.unit === "user" || normalized?.unit === "seat"
       ? "seat_based"

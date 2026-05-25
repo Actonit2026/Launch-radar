@@ -608,6 +608,112 @@ function createRecommendation({
   };
 }
 
+function createBaselineRecommendation({
+  type,
+  title,
+  explanation,
+  whyThisMatters,
+  userFact,
+  actionability = "high",
+}: {
+  type: string;
+  title: string;
+  explanation: string;
+  whyThisMatters: string;
+  userFact: StructuredFact;
+  actionability?: "medium" | "high";
+}): ProductRecommendationDraft | null {
+  if (!reliable(userFact)) {
+    return null;
+  }
+
+  const score = Math.min(88, Math.round(68 + userFact.confidence_score * 18));
+  const priority = priorityScore({ type, confidence: score, actionability });
+  const novelty = 0.68;
+
+  if (score < 75 || priority < 35) {
+    return null;
+  }
+
+  return {
+    recommendation_type: type,
+    title,
+    explanation,
+    why_this_matters: whyThisMatters,
+    evidence_json: {
+      user_evidence: [evidenceFromUser(userFact)],
+      competitor_evidence: [],
+      observation: userFact.value,
+      interpretation:
+        "This is a baseline opportunity from the user's public page evidence. It does not require competitor consensus.",
+      reasoning:
+        "LaunchRadar found a clear user-page signal that can be made more conversion-specific without relying on guesses.",
+      recommendation: title,
+      trust: {
+        confidence: score,
+        confidence_label: confidenceLabel(score),
+        actionability_score: actionabilityScore(actionability),
+        impact_score: impactScore(type),
+        effort_score: effortScore(type),
+        novelty_score: novelty,
+        priority_score: priority,
+        visibility: visibilityForConfidence(score),
+        consensus: {
+          supporting_competitors: 0,
+          required_competitors: 0,
+          average_confidence: 0,
+          satisfied: true,
+        },
+        recommendation_value_score: 62,
+        recommendation_value_max: 70,
+        recommendation_value_components: {
+          specificity: 8,
+          evidence: 7,
+          actionability: scoreOutOfTen(actionabilityScore(actionability) * 10),
+          novelty: scoreOutOfTen(novelty * 10),
+          business_impact: scoreOutOfTen(impactScore(type) * 10),
+          founder_usefulness: 8,
+          confidence: scoreOutOfTen(score / 10),
+        },
+        recommendation_value_tier: "prioritize",
+        adversarial_review: {
+          supporting_argument:
+            "The recommendation is grounded in a verified public-page fact from the user's own product.",
+          counterargument:
+            "Without competitor or analytics data, this should be treated as a high-confidence copy/layout test rather than a guaranteed conversion win.",
+          missing_evidence:
+            "No conversion analytics or user research is available inside LaunchRadar.",
+          alternative_explanation:
+            "The current page may intentionally optimize for a different sales motion.",
+          survives: true,
+        },
+        implementability: {
+          what_changes: title,
+          why: explanation,
+          expected_impact:
+            "Clearer public-page decision signals for visitors evaluating the product.",
+          difficulty:
+            actionability === "high"
+              ? "Low to medium: copy/layout test"
+              : "Medium: positioning decision required",
+          time_estimate:
+            actionability === "high"
+              ? "1-3 hours for a focused page test"
+              : "1-2 days for a messaging pass",
+        },
+      },
+      trend: {
+        status: "baseline_only",
+        time_window: "latest_baseline",
+        note: "This recommendation uses current verified baseline facts only.",
+      },
+    },
+    confidence: score,
+    confidence_label: confidenceLabel(score),
+    actionability,
+  };
+}
+
 function pricingVisibilityRecommendation(
   input: ProductRecommendationInput,
 ): ProductRecommendationDraft | null {
@@ -789,14 +895,127 @@ function positioningRecommendation(
   });
 }
 
+function baselinePricingRecommendation(
+  input: ProductRecommendationInput,
+): ProductRecommendationDraft | null {
+  const visiblePrice = bestFact(input.productFacts, [
+    "visible_price",
+    "lowest_price",
+    "pricing_plan",
+    "free_plan",
+  ]);
+  const contactSales = bestFact(input.productFacts, ["contact_sales"]);
+  const pricingVisibility = bestFact(input.productFacts, ["pricing_visibility"]);
+
+  if (visiblePrice || ["public", "partially_public"].includes(pricingVisibility?.value ?? "")) {
+    return null;
+  }
+
+  const evidence = contactSales ?? pricingVisibility;
+
+  if (!evidence) {
+    return null;
+  }
+
+  return createBaselineRecommendation({
+    type: "pricing_visibility",
+    title: "Clarify the pricing path visitors should take",
+    explanation:
+      contactSales
+        ? "Your page shows a sales-led pricing path. Make that path explicit with who should contact sales and what happens next."
+        : "LaunchRadar could not verify public pricing from your current page evidence. Add a clear pricing signal or explicitly route buyers to sales.",
+    whyThisMatters:
+      "Pricing ambiguity can slow qualified visitors. The safer action is to clarify the path, not invent a price.",
+    userFact: evidence,
+  });
+}
+
+function baselineCtaRecommendation(
+  input: ProductRecommendationInput,
+): ProductRecommendationDraft | null {
+  const userCta = bestFact(input.productFacts, [
+    "primary_cta",
+    "secondary_cta",
+    "cta_funnel_intent",
+  ]);
+
+  if (!userCta) {
+    return null;
+  }
+
+  const intent = ctaIntent(userCta);
+  const unclear =
+    userCta.field === "cta_funnel_intent"
+      ? userCta.value === "unclear"
+      : intent === "unknown" || passiveCtaPattern.test(userCta.value);
+
+  if (!unclear) {
+    return null;
+  }
+
+  return createBaselineRecommendation({
+    type: "cta_clarity",
+    title: "Make the main CTA describe the next step",
+    explanation:
+      "Your detected CTA is passive or unclear. Replace it with the action visitors should take now, such as starting, signing up, booking, or viewing pricing.",
+    whyThisMatters:
+      "A clear CTA reduces decision friction and is easy to test without changing the product.",
+    userFact: userCta,
+  });
+}
+
+function baselinePositioningRecommendation(
+  input: ProductRecommendationInput,
+): ProductRecommendationDraft | null {
+  const headline = bestFact(input.productFacts, [
+    "homepage_headline",
+    "main_value_prop",
+    "subheadline",
+  ]);
+  const specific = bestFact(input.productFacts, [
+    "target_customer",
+    "target_customer_model",
+    "product_category",
+    "market_category",
+    "key_use_case",
+  ]);
+
+  if (!headline || specific) {
+    return null;
+  }
+
+  return createBaselineRecommendation({
+    type: "positioning_specificity",
+    title: "Add a sharper audience or use-case signal",
+    explanation:
+      "LaunchRadar found a headline or value statement, but not a clear target customer, category, or use case.",
+    whyThisMatters:
+      "Specific positioning helps visitors decide faster whether the product is for them.",
+    userFact: headline,
+    actionability: "medium",
+  });
+}
+
 export function buildProductRecommendations(
   input: ProductRecommendationInput,
 ): ProductRecommendationDraft[] {
-  const recommendations = [
+  const competitorRecommendations = [
     pricingVisibilityRecommendation(input),
     ctaRecommendation(input),
     positioningRecommendation(input),
   ].filter((item): item is ProductRecommendationDraft => Boolean(item));
+  const baselineRecommendations =
+    input.competitorSnapshots.length === 0
+      ? [
+          baselinePricingRecommendation(input),
+          baselineCtaRecommendation(input),
+          baselinePositioningRecommendation(input),
+        ].filter((item): item is ProductRecommendationDraft => Boolean(item))
+      : [];
+  const recommendations = [
+    ...competitorRecommendations,
+    ...baselineRecommendations,
+  ];
 
   return recommendations
     .filter(isActionableHighValueRecommendation)

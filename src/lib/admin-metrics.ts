@@ -89,6 +89,15 @@ export async function getAdminCostMetrics() {
     weeklyDigestsToday: countByType(eventsToday, "weekly_digest"),
     estimatedMonthlyCost: Number(estimatedMonthlyCost.toFixed(4)),
     monthlyBudget: config.monthlyCostBudgetEur,
+    costGuards: {
+      freeAiEnabled: config.freeEnableAi,
+      freeBrowserEnabled: config.freeEnableBrowser,
+      freeMaxPages: config.freeMaxPages,
+      freeMaxRuntimeMs: config.freeMaxRuntimeMs,
+      freeMaxRefreshPerDay: config.freeMaxRefreshPerDay,
+      seedScanEnabled: config.seedScanEnabled,
+      seedMaxUrlsPerRun: config.seedMaxUrlsPerRun,
+    },
     topUsersByCost,
   };
 }

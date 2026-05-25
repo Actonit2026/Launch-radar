@@ -46,6 +46,16 @@ function readNumberEnvAny(names: string[], fallback: number) {
   return fallback;
 }
 
+function readBooleanEnv(name: string, fallback: boolean) {
+  const value = process.env[name];
+
+  if (value === undefined) {
+    return fallback;
+  }
+
+  return value === "true" || value === "1";
+}
+
 export function getUsageConfig() {
   return {
     monthlyCostBudgetEur: readNumberEnv("MONTHLY_COST_BUDGET_EUR", 20),
@@ -69,6 +79,16 @@ export function getUsageConfig() {
     ),
     maxAiCallsPerUserPerDay: readNumberEnv("MAX_AI_CALLS_PER_USER_PER_DAY", 2),
     maxPagesPerScan: readNumberEnv("MAX_PAGES_PER_SCAN", 15),
+    freeEnableAi: readBooleanEnv("FREE_ENABLE_AI", false),
+    freeEnableBrowser: readBooleanEnv("FREE_ENABLE_BROWSER", false),
+    freeCacheTtlDays: readNumberEnv("FREE_CACHE_TTL_DAYS", 7),
+    freeMaxPages: readNumberEnv("FREE_MAX_PAGES", 2),
+    freeMaxRuntimeMs: readNumberEnv("FREE_MAX_RUNTIME_MS", 5000),
+    freeMaxRefreshPerDay: readNumberEnv("FREE_MAX_REFRESH_PER_DAY", 1),
+    seedScanEnabled: readBooleanEnv("SEED_SCAN_ENABLED", false),
+    seedEnableAi: readBooleanEnv("SEED_ENABLE_AI", false),
+    seedEnableBrowser: readBooleanEnv("SEED_ENABLE_BROWSER", false),
+    seedMaxUrlsPerRun: readNumberEnv("SEED_MAX_URLS_PER_RUN", 50),
     maxBrowserRenderPerUserPerDay: readNumberEnv(
       "MAX_BROWSER_RENDER_PER_USER_PER_DAY",
       3,
@@ -476,6 +496,8 @@ export async function canRunAiSummary({
   userId?: string;
   estimatedTokens: number;
 }): Promise<UsageDecision> {
+  const config = getUsageConfig();
+
   if (
     userId &&
     (await masterAdminBypassDecision({
@@ -487,7 +509,17 @@ export async function canRunAiSummary({
     return { allowed: true };
   }
 
-  const config = getUsageConfig();
+  if (userId) {
+    const plan = await getPlanForUser(supabase, userId);
+
+    if (plan.name === "free" && !config.freeEnableAi) {
+      return {
+        allowed: false,
+        reason: "AI summary skipped for the Free plan cost guard.",
+      };
+    }
+  }
+
   const [budget, globalAiCalls, userAiCalls, monthlyTokens] = await Promise.all([
     budgetDecision(supabase),
     countEvents({

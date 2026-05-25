@@ -10,6 +10,7 @@ import {
   type PageModel,
   type PageLink,
 } from "@/lib/crawler/text";
+import { validateResolvedHostname, validateUrl } from "@/lib/url-safety.server";
 
 export type ScrapedPage = {
   requestedUrl: string;
@@ -25,6 +26,7 @@ export type ScrapedPage = {
   hash: string;
   links: PageLink[];
   pageModel?: PageModel;
+  scrape_method?: "fetch" | "playwright" | "failed";
   rendering?: "static" | "browser";
   javascriptHeavy?: boolean;
   warnings?: string[];
@@ -47,7 +49,7 @@ const configuredFetchTimeoutMs = Number(process.env.LAUNCHRADAR_FETCH_TIMEOUT_MS
 const fetchTimeoutMs =
   Number.isFinite(configuredFetchTimeoutMs) && configuredFetchTimeoutMs > 0
     ? configuredFetchTimeoutMs
-    : 6500;
+    : 10000;
 const staticMeaningfulTextThreshold = 140;
 const domainDelayMs = 500;
 const dynamicCurrencyTimeoutMs = 1200;
@@ -86,6 +88,7 @@ function failedScrape(url: string, error: unknown, status: number | null = null)
     rawText: "",
     hash: hashText(""),
     links: [],
+    scrape_method: "failed",
     rendering: "static",
     error: error instanceof Error ? error.message : "Unknown scrape error.",
     errorType: errorTypeFor(error, status),
@@ -150,14 +153,50 @@ function javascriptHeavyWarning() {
 }
 
 function browserFallbackEnabled() {
+  if (process.env.ENABLE_BROWSER_FALLBACK === "true") {
+    return true;
+  }
+
   if (process.env.LAUNCHRADAR_BROWSER_FALLBACK === "1") {
     return true;
   }
 
-  return (
-    process.env.NODE_ENV !== "production" &&
-    process.env.LAUNCHRADAR_BROWSER_FALLBACK !== "0"
-  );
+  return false;
+}
+
+function shouldUseBrowserFallback(result: ScrapedPage) {
+  if (result.ok) {
+    return false;
+  }
+
+  if (
+    result.javascriptHeavy ||
+    result.errorType === "javascript_heavy" ||
+    result.errorType === "empty_content" ||
+    result.errorType === "blocked"
+  ) {
+    return true;
+  }
+
+  if (result.errorType === "not_found" || result.status === 404 || result.status === 410) {
+    return false;
+  }
+
+  const html = result.html ?? "";
+  const shellSignals =
+    /\b(?:enable javascript|javascript is required|__NEXT_DATA__|id=["']root["']|id=["']__next["']|data-reactroot|cf-challenge|captcha|checking your browser)\b/i.test(
+      html,
+    );
+
+  return shellSignals && result.rawText.trim().length < staticMeaningfulTextThreshold;
+}
+
+async function validateBeforeFetch(url: string) {
+  const normalized = await validateUrl(url);
+  const hostname = new URL(normalized).hostname;
+
+  await validateResolvedHostname(hostname);
+  return normalized;
 }
 
 async function enrichDynamicCurrencyHtml(html: string, finalUrl: string) {
@@ -183,11 +222,19 @@ async function enrichDynamicCurrencyHtml(html: string, finalUrl: string) {
     return html;
   }
 
+  const safeCurrencyUrl = await validateBeforeFetch(currencyUrl.toString()).catch(
+    () => null,
+  );
+
+  if (!safeCurrencyUrl) {
+    return html;
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), dynamicCurrencyTimeoutMs);
 
   try {
-    const response = await fetch(currencyUrl, {
+    const response = await fetch(safeCurrencyUrl, {
       redirect: "follow",
       signal: controller.signal,
       headers: {
@@ -241,19 +288,23 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
   const timeout = setTimeout(() => controller.abort(), fetchTimeoutMs);
 
   try {
-    await waitForDomainSlot(url);
+    const safeUrl = await validateBeforeFetch(url);
 
-    if (!(await isAllowedByRobots(url))) {
+    await waitForDomainSlot(safeUrl);
+
+    if (!(await isAllowedByRobots(safeUrl))) {
       return {
         ...failedScrape(
-          url,
+          safeUrl,
           new Error("This page disallows automated public analysis via robots.txt."),
           403,
         ),
       };
     }
 
-    const response = await fetch(url, {
+    await validateResolvedHostname(new URL(safeUrl).hostname);
+
+    const response = await fetch(safeUrl, {
       redirect: "follow",
       signal: controller.signal,
       headers: {
@@ -261,7 +312,7 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
         "user-agent": crawlerUserAgent(),
       },
     });
-    const finalUrl = response.url || url;
+    const finalUrl = await validateUrl(response.url || safeUrl);
     const html = await enrichDynamicCurrencyHtml(await response.text(), finalUrl);
     const rawText = extractMeaningfulText(html);
     const status = response.status;
@@ -276,9 +327,9 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
     const warnings = javascriptHeavy ? [javascriptHeavyWarning()] : [];
 
     return {
-      requestedUrl: url,
+      requestedUrl: safeUrl,
       finalUrl,
-      redirected: finalUrl !== url,
+      redirected: finalUrl !== safeUrl,
       title: extractPageTitle(html),
       metaDescription: extractMetaDescription(html),
       status,
@@ -289,6 +340,7 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
       hash: hashText(rawText),
       links: extractPageLinks(html, finalUrl),
       pageModel,
+      scrape_method: "fetch",
       rendering: "static",
       javascriptHeavy,
       warnings,
@@ -338,10 +390,11 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
 
   try {
     for (const url of urls) {
+      const safeUrl = await validateBeforeFetch(url);
       const page = await context.newPage();
 
       try {
-        const response = await page.goto(url, {
+        const response = await page.goto(safeUrl, {
           waitUntil: "domcontentloaded",
           timeout: 30000,
         });
@@ -352,7 +405,7 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
           })
           .catch(() => undefined);
 
-        const finalUrl = page.url();
+        const finalUrl = await validateUrl(page.url());
         const html = await enrichDynamicCurrencyHtml(await page.content(), finalUrl);
         const rawText = extractMeaningfulText(html);
         const status = response?.status() ?? null;
@@ -365,9 +418,9 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
         });
 
         results.push({
-          requestedUrl: url,
+          requestedUrl: safeUrl,
           finalUrl,
-          redirected: finalUrl !== url,
+          redirected: finalUrl !== safeUrl,
           title: await page.title(),
           metaDescription: extractMetaDescription(html),
           status,
@@ -378,6 +431,7 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
           hash: hashText(rawText),
           links: extractPageLinks(html, finalUrl),
           pageModel,
+          scrape_method: "playwright",
           rendering: "browser",
           ...((status !== null && status >= 400)
             ? { errorType: errorTypeFor(`HTTP ${status}`, status) }
@@ -403,7 +457,7 @@ export async function scrapePages(urls: string[]): Promise<ScrapedPage[]> {
 
   const fetchResults = await Promise.all(urls.map(scrapePageWithFetch));
   const urlsNeedingBrowser = fetchResults
-    .filter((result) => !result.ok)
+    .filter(shouldUseBrowserFallback)
     .map((result) => result.requestedUrl);
 
   if (!urlsNeedingBrowser.length || !browserFallbackEnabled()) {
@@ -419,7 +473,15 @@ export async function scrapePages(urls: string[]): Promise<ScrapedPage[]> {
     return fetchResults.map((result) => {
       const browserResult = browserByUrl.get(result.requestedUrl);
 
-      return browserResult?.ok ? browserResult : result;
+      return browserResult?.ok
+        ? {
+            ...browserResult,
+            warnings: [
+              ...(browserResult.warnings ?? []),
+              "Browser fallback used because static fetch could not extract enough public content.",
+            ],
+          }
+        : result;
     });
   } catch (error) {
     const message = userFriendlyBlockedMessage(error);

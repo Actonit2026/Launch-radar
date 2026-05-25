@@ -46,7 +46,7 @@ export default async function AdminPage() {
         </h1>
         <p className="mt-2 text-sm leading-6 text-ink/60">
           Operational counters for launch safety. This page is only available
-          to emails in ADMIN_EMAILS.
+          to emails in MASTER_ADMIN_EMAILS or ADMIN_EMAILS.
         </p>
         <div className="mt-5 flex flex-wrap gap-3">
           <Link
@@ -87,6 +87,36 @@ export default async function AdminPage() {
             <p className="mt-4 text-2xl font-semibold text-ink">{value}</p>
           </article>
         ))}
+      </section>
+
+      <section className="rounded-lg border border-ink/10 bg-white p-5">
+        <h2 className="text-lg font-semibold text-ink">Cost guards</h2>
+        <div className="mt-4 grid gap-2 text-sm text-ink/70 md:grid-cols-2">
+          {[
+            ["Free AI", metrics.costGuards.freeAiEnabled ? "enabled" : "disabled"],
+            [
+              "Free browser fallback",
+              metrics.costGuards.freeBrowserEnabled ? "enabled" : "disabled",
+            ],
+            ["Free max pages", metrics.costGuards.freeMaxPages],
+            ["Free max runtime", `${metrics.costGuards.freeMaxRuntimeMs} ms`],
+            ["Free refreshes/day", metrics.costGuards.freeMaxRefreshPerDay],
+            [
+              "Seed scans",
+              metrics.costGuards.seedScanEnabled
+                ? `${metrics.costGuards.seedMaxUrlsPerRun} URLs/run`
+                : "disabled",
+            ],
+          ].map(([label, value]) => (
+            <div
+              key={label}
+              className="flex items-center justify-between rounded-md bg-paper px-3 py-2"
+            >
+              <span>{label}</span>
+              <span className="font-semibold text-ink">{value}</span>
+            </div>
+          ))}
+        </div>
       </section>
 
       <section className="rounded-lg border border-ink/10 bg-white p-5">

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
+import type { Database } from "@/lib/database.types";
 import { getStripe, planForStripePrice } from "@/lib/stripe";
 import { getSupabaseAdminClient } from "@/lib/supabase/admin";
 
@@ -24,6 +25,13 @@ function isActiveSubscription(status: Stripe.Subscription.Status) {
   return status === "active" || status === "trialing";
 }
 
+type SubscriptionPlanUpdateResult = {
+  ok: boolean;
+  warning?: string;
+};
+type UserUpdate = Database["public"]["Tables"]["users"]["Update"];
+type BillingPlan = NonNullable<UserUpdate["plan"]>;
+
 async function setUserPlanFromSubscription({
   userId,
   subscription,
@@ -32,12 +40,20 @@ async function setUserPlanFromSubscription({
   userId?: string | null;
   subscription: Stripe.Subscription;
   customerId: string;
-}) {
+}): Promise<SubscriptionPlanUpdateResult> {
   const supabase = getSupabaseAdminClient();
   const active = isActiveSubscription(subscription.status);
   const priceId = subscription.items.data[0]?.price.id;
-  const activePlan = planForStripePrice(priceId);
-  const payload = active
+  const activePlan: BillingPlan | null = active ? planForStripePrice(priceId) : "free";
+
+  if (!activePlan) {
+    const warning = `Unknown Stripe price ID for subscription ${subscription.id}.`;
+
+    console.error(warning, { priceId });
+    return { ok: false, warning };
+  }
+
+  const payload: UserUpdate = active
     ? {
         plan: activePlan,
         competitor_limit: activePlan === "business" ? 999 : 20,
@@ -58,19 +74,49 @@ async function setUserPlanFromSubscription({
       };
 
   if (userId) {
-    await supabase.from("users").update(payload).eq("id", userId);
-    return;
+    const { data, error } = await supabase
+      .from("users")
+      .update(payload)
+      .eq("id", userId)
+      .select("id");
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    if (!data?.length) {
+      const warning = `No user row matched Stripe subscription ${subscription.id}.`;
+
+      console.error(warning, { userId, customerId });
+      return { ok: false, warning };
+    }
+
+    return { ok: true };
   }
 
-  await supabase
+  const { data, error } = await supabase
     .from("users")
     .update(payload)
-    .eq("billing_customer_id", customerId);
+    .eq("billing_customer_id", customerId)
+    .select("id");
+
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  if (!data?.length) {
+    const warning = `No user row matched Stripe customer ${customerId}.`;
+
+    console.error(warning, { subscriptionId: subscription.id });
+    return { ok: false, warning };
+  }
+
+  return { ok: true };
 }
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   if (session.mode !== "subscription" || !session.subscription) {
-    return;
+    return { ok: true } satisfies SubscriptionPlanUpdateResult;
   }
 
   const stripe = getStripe();
@@ -84,7 +130,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       ? session.customer
       : session.customer?.id ?? customerIdFromSubscription(subscription);
 
-  await setUserPlanFromSubscription({
+  return setUserPlanFromSubscription({
     userId: session.metadata?.user_id ?? session.client_reference_id,
     subscription,
     customerId,
@@ -92,7 +138,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 }
 
 async function handleSubscriptionChanged(subscription: Stripe.Subscription) {
-  await setUserPlanFromSubscription({
+  return setUserPlanFromSubscription({
     userId: subscription.metadata?.user_id,
     subscription,
     customerId: customerIdFromSubscription(subscription),
@@ -128,24 +174,37 @@ export async function POST(request: Request) {
   }
 
   try {
+    const warnings: string[] = [];
+
     switch (event.type) {
       case "checkout.session.completed":
-        await handleCheckoutCompleted(
+        {
+          const result = await handleCheckoutCompleted(
           event.data.object as Stripe.Checkout.Session,
-        );
+          );
+
+          if (result.warning) warnings.push(result.warning);
+        }
         break;
       case "customer.subscription.created":
       case "customer.subscription.updated":
       case "customer.subscription.deleted":
-        await handleSubscriptionChanged(
+        {
+          const result = await handleSubscriptionChanged(
           event.data.object as Stripe.Subscription,
-        );
+          );
+
+          if (result.warning) warnings.push(result.warning);
+        }
         break;
       default:
         break;
     }
 
-    return NextResponse.json({ received: true });
+    return NextResponse.json({
+      received: true,
+      ...(warnings.length ? { warnings } : {}),
+    });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Could not process webhook.";

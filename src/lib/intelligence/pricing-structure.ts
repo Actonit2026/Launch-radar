@@ -48,6 +48,10 @@ const pricingContextPattern =
   /\b(?:pricing|price|prices|plans?|tiers?|package|billing|monthly|yearly|annually|pageviews?|seats?|users?|requests?|usage|calculator|slider)\b/i;
 const ctaPattern =
   /\b(?:start free|start trial|get started|sign up|buy|upgrade|subscribe|contact us|contact sales|talk to sales|view pricing|choose plan)\b/i;
+const verifiedPricingStructurePattern =
+  /\b(?:pricing table|pricing card|plan card|plans?|billing toggle|upgrade|subscription|checkout|choose plan|monthly|yearly|annually|get plus|get pro|get business|start free|buy now|pageviews?|seats?|users?|requests?|usage|calculator|slider)\b/i;
+const contaminatedPricePattern =
+  /\b(?:job|salary|budget|freelance|freelancer|contractor|hiring|client project|project budget|hourly|per hour|\/\s?hr|\bhr\b|upwork|example|sample|template|generated output|generated proposal|proposal sample|sample proposal|article|blog post|copywriting|per article|testimonial|customer story|case study)\b/i;
 
 function normalizeText(value: string) {
   return value
@@ -87,8 +91,22 @@ function billingModeFor(
   return "unknown";
 }
 
+function isProductPricingText(text: string) {
+  const verified =
+    verifiedPricingStructurePattern.test(text) ||
+    ctaPattern.test(text) ||
+    (pricingContextPattern.test(text) && planNamePattern.test(text));
+
+  return verified || !contaminatedPricePattern.test(text) && pricingContextPattern.test(text);
+}
+
 function parsePrices(text: string): ParsedPrice[] {
   const normalized = normalizeText(text);
+
+  if (!isProductPricingText(normalized)) {
+    return [];
+  }
+
   const patterns = [
     /([$\u20AC\u00A3]|Ã¢â€šÂ¬|Ã‚Â£)\s?(\d{1,5}(?:[.,]\d{1,2})?)/gi,
     /(\d{1,5}(?:[.,]\d{1,2})?)\s?([$\u20AC\u00A3]|Ã¢â€šÂ¬|Ã‚Â£)/gi,
@@ -183,7 +201,7 @@ function allDomLines($: cheerio.CheerioAPI) {
     .filter(Boolean);
 }
 
-function planNameFromText(text: string, fallback: string) {
+function planNameFromText(text: string, fallback = "Public pricing") {
   const lines = text.split(/\n+/).map(normalizeText).filter(Boolean);
   const explicit = text.match(planNamePattern)?.[1];
 
@@ -385,7 +403,7 @@ function parseTableStructures($: cheerio.CheerioAPI, sourceUrl: string) {
         const plan = planFromText({
           text: rowText,
           sourceUrl,
-          fallback: cells[0] ?? `Plan ${plans.length + 1}`,
+          fallback: cells[0] ?? "Public pricing",
           section: "pricing_table",
           cta: null,
         });
@@ -440,7 +458,7 @@ function parseCardStructures($: cheerio.CheerioAPI, sourceUrl: string) {
     const plan = planFromText({
       text,
       sourceUrl,
-      fallback: `Plan ${index + 1}`,
+      fallback: "Public pricing",
       section: "pricing_card",
       cta: ctaFromElement($, element),
     });
@@ -756,11 +774,11 @@ export function parsePricingStructure({
   const headingPlans = html ? parseHeadingPlanStructures($, sourceUrl) : [];
   const blockPlans = analysisBlocks(scrape, ["pricing"])
     .filter((block) => block.type === "pricing")
-    .map((block, index) =>
+    .map((block) =>
       planFromText({
         text: blockText(block),
         sourceUrl,
-        fallback: `Plan ${index + 1}`,
+        fallback: "Public pricing",
         section: "pricing_block",
         cta: block.buttons.find((button) => ctaPattern.test(button)) ?? null,
       }),

@@ -417,7 +417,7 @@ function priceOptionLabel(fact: IntelligenceFactView) {
     }
   }
 
-  return "Visible price";
+  return "Public price";
 }
 
 function priceOptionText(fact: IntelligenceFactView) {
@@ -464,7 +464,7 @@ function pricingOptions(snapshot: IntelligenceSnapshotView): PricingOptionView[]
   const usageOptions = factsByField(snapshot, "usage_tier").map(
     (fact): PricingOptionView => ({
       state: fact.confidence === "low" ? "pricing_unclear" : "public_pricing",
-      label: "Usage tier",
+      label: fact.value.split(":")[0]?.trim() || "Pricing option",
       text: fact.value,
       confidence: fact.confidence,
       fact,

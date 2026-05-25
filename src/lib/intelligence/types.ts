@@ -242,6 +242,7 @@ export type PricingCandidateDebug = {
   score: number;
   accepted: boolean;
   reasons: string[];
+  classification?: string;
   rejection_reason?: string;
 };
 

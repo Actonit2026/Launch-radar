@@ -1391,6 +1391,12 @@ export function compareSnapshotAnalyses({
     );
   }
 
+  if (!rawChanged && !canonicalChanged && !structuredFactsChanged) {
+    ignoredReasons.push(
+      "No change created: raw, canonical, and structured hashes matched.",
+    );
+  }
+
   if (canonicalChanged && !structuredFactsChanged && !meaningfulChanges.length) {
     ignoredReasons.push("Canonical content changed, but no structured business facts changed.");
     ignoredReasons.push("User-facing changes are created from structured facts only.");

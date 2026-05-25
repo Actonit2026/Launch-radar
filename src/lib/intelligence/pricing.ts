@@ -29,6 +29,7 @@ type PriceCandidate = {
   section: PageBlockType;
   score: number;
   reasons: string[];
+  classification: string;
   rejected?: string;
   ambiguous?: boolean;
 };
@@ -79,6 +80,18 @@ const footerLegalPattern =
   /\b(?:privacy|terms|legal|cookie|copyright|all rights reserved)\b/i;
 const testimonialPattern =
   /\b(?:testimonial|customer story|case study|review|rated|stars)\b/i;
+const exampleContentPattern =
+  /\b(?:example|sample|template|generated output|generated proposal|proposal sample|sample proposal)\b/i;
+const jobBudgetPattern =
+  /\b(?:job|salary|budget|freelance|freelancer|contractor|hiring|client project|project budget|hourly|per hour|\/\s?hr|\bhr\b|upwork)\b/i;
+const articleBudgetPattern =
+  /\b(?:article|blog post|copywriting|content budget|per article)\b/i;
+const faqPattern =
+  /\b(?:faq|frequently asked|question|answer)\b/i;
+const verifiedPricingStructurePattern =
+  /\b(?:pricing table|pricing card|plan card|plans?|billing toggle|upgrade|subscription|checkout|choose plan|monthly|yearly|annually|get plus|get pro|get business|start free|buy now)\b/i;
+const productPricingIntentPattern =
+  /\b(?:pricing|price|billing|subscription|pricing table|pricing card|plan card|choose plan|get plus|get pro|get business|upgrade|subscribe|checkout|start free|buy now)\b/i;
 
 function parseAmount(value: string) {
   return Number(value.replace(",", "."));
@@ -163,6 +176,12 @@ function localContextForMatch(context: string, index: number, length: number) {
   const nextEndIndex = context.indexOf("\n", lineEnd + 1);
   const nextEnd = nextEndIndex === -1 ? context.length : nextEndIndex;
   const local = context.slice(previousStart, nextEnd).replace(/\s+/g, " ").trim();
+
+  if (local.length > 180) {
+    return context.slice(Math.max(0, index - 140), index + length + 140)
+      .replace(/\s+/g, " ")
+      .trim();
+  }
 
   return local || context.slice(Math.max(0, index - 120), index + length + 120);
 }
@@ -250,6 +269,66 @@ function scoreCandidate({
   return { score: boundedScore(score), reasons };
 }
 
+function verifiedPricingContext({
+  context,
+  section,
+  pageType,
+}: {
+  context: string;
+  section: PageBlockType;
+  pageType: PageType;
+}) {
+  const strongVerified =
+    verifiedPricingStructurePattern.test(context) ||
+    ctaContextPattern.test(context) ||
+    (pricingContextPattern.test(context) && planPattern.test(context));
+  const contaminated =
+    jobBudgetPattern.test(context) ||
+    articleBudgetPattern.test(context) ||
+    exampleContentPattern.test(context) ||
+    testimonialPattern.test(context);
+
+  if (contaminated && !productPricingIntentPattern.test(context)) {
+    return false;
+  }
+
+  return (
+    section === "pricing" ||
+    pageType === "pricing" ||
+    strongVerified
+  );
+}
+
+function priceContextClassification({
+  context,
+  section,
+  pageType,
+}: {
+  context: string;
+  section: PageBlockType;
+  pageType: PageType;
+}) {
+  const verifiedPricing = verifiedPricingContext({ context, section, pageType });
+
+  if (!verifiedPricing) {
+    if (jobBudgetPattern.test(context)) return "job_budget";
+    if (articleBudgetPattern.test(context)) return "article_budget";
+    if (exampleContentPattern.test(context)) return "example_content";
+    if (testimonialPattern.test(context)) return "testimonial";
+    if (faqPattern.test(context)) return "faq";
+  }
+
+  if (verifiedPricing) {
+    return "product_pricing";
+  }
+
+  if (pricingContextPattern.test(context)) {
+    return "unknown";
+  }
+
+  return "unknown";
+}
+
 function candidateDebug(
   candidate: PriceCandidate,
   sourceUrl: string,
@@ -262,6 +341,7 @@ function candidateDebug(
     score: candidate.score,
     accepted: !candidate.rejected && !candidate.ambiguous,
     reasons: candidate.reasons,
+    classification: candidate.classification,
     ...(candidate.rejected || candidate.ambiguous
       ? {
           rejection_reason:
@@ -294,6 +374,10 @@ function candidatesFromContext({
         matchIndex,
         match[0].length,
       );
+      const immediateContext = context
+        .slice(Math.max(0, matchIndex - 70), matchIndex + match[0].length + 90)
+        .replace(/\s+/g, " ")
+        .trim();
       const first = match[1];
       const second = match[2];
       const third = match[3];
@@ -310,13 +394,20 @@ function candidatesFromContext({
       }
 
       const scoring = scoreCandidate({
-        context,
+        context: localContext,
         section,
         pageType,
         rawText: match[0],
       });
+      const classification = priceContextClassification({
+        context: immediateContext || localContext,
+        section,
+        pageType,
+      });
       const rejected =
-        scoring.score < 35
+        classification !== "product_pricing"
+          ? `non_product_pricing_${classification}`
+          : scoring.score < 35
           ? "confidence_below_threshold"
           : amount <= 0
             ? "non_positive_amount"
@@ -330,12 +421,13 @@ function candidatesFromContext({
         unit: unitForContext(localContext) ?? unitForContext(context),
         plan: planForContext(localContext, heading),
         evidenceText: localContext,
-        context,
+        context: localContext,
         section,
         score: scoring.score,
-        reasons: scoring.reasons,
+        reasons: [...scoring.reasons, `classification:${classification}`],
+        classification,
         rejected,
-        ambiguous: scoring.score >= 35 && scoring.score < 50,
+        ambiguous: scoring.score >= 35 && scoring.score < 60,
       });
     }
   }
@@ -354,6 +446,7 @@ function candidatesFromContext({
       section,
       score: 25,
       reasons: ["strong_plan_context_without_currency"],
+      classification: "unknown",
       rejected: "missing_currency",
     });
   }

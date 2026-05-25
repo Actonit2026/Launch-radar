@@ -1,3 +1,5 @@
+import { validateUrl } from "@/lib/url-safety.server";
+
 type RobotsRule = {
   agent: string;
   directive: "allow" | "disallow";
@@ -73,7 +75,7 @@ function parseRobots(text: string): RobotsRule[] {
 }
 
 async function fetchRobotsPolicy(url: string) {
-  const robotsUrl = robotsUrlFor(url);
+  const robotsUrl = await validateUrl(robotsUrlFor(url));
   const cached = robotsCache.get(robotsUrl);
 
   if (cached && Date.now() - cached.fetchedAt < robotsCacheTtlMs) {

@@ -1,6 +1,6 @@
 import Stripe from "stripe";
 
-let stripeClient: Stripe | null = null;
+let stripeClient: InstanceType<typeof Stripe> | null = null;
 
 export function isStripeConfigured() {
   return Boolean(process.env.STRIPE_SECRET_KEY && process.env.STRIPE_PRO_PRICE_ID);
@@ -88,5 +88,15 @@ export function planForStripePrice(priceId?: string | null) {
     return "business" as const;
   }
 
-  return "pro" as const;
+  if (
+    priceId &&
+    [
+      process.env.STRIPE_PRO_PRICE_ID,
+      process.env.STRIPE_PRO_ANNUAL_PRICE_ID,
+    ].includes(priceId)
+  ) {
+    return "pro" as const;
+  }
+
+  return null;
 }

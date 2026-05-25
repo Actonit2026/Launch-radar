@@ -33,6 +33,7 @@ type FeatureCandidateSource = {
 function featureNameFromLine(line: string) {
   const cleaned = line
     .replace(/\s+(?:learn more|read more|get started|try free)$/i, "")
+    .replace(/^(.{4,80})\s*:\s*\1$/i, "$1")
     .trim();
 
   if (
@@ -50,18 +51,35 @@ function featureNameFromLine(line: string) {
 }
 
 function descriptionForFeature(lines: string[], index: number) {
+  const currentLine = lines[index];
   const nextLine = lines[index + 1];
 
   if (
     nextLine &&
     nextLine.length >= 20 &&
     nextLine.length <= 180 &&
-    !rejectedFeaturePattern.test(nextLine)
+    !rejectedFeaturePattern.test(nextLine) &&
+    sentenceCaseKey(nextLine) !== sentenceCaseKey(currentLine) &&
+    !sentenceCaseKey(nextLine).startsWith(`${sentenceCaseKey(currentLine)} `)
   ) {
     return nextLine;
   }
 
   return undefined;
+}
+
+function featureValue({
+  name,
+  description,
+}: {
+  name: string;
+  description?: string;
+}) {
+  if (!description || sentenceCaseKey(description) === sentenceCaseKey(name)) {
+    return name;
+  }
+
+  return `${name}: ${description}`;
 }
 
 function featureConfidence({
@@ -233,7 +251,7 @@ export function analyzeFeatures(
     candidates.push(
       makeFact({
         field: "feature",
-        value: description ? `${name}: ${description}` : name,
+        value: featureValue({ name, description }),
         normalizedValue: {
           name,
           ...(description ? { description } : {}),
