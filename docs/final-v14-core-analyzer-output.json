@@ -1,0 +1,43 @@
+{
+  "passed": 9,
+  "failed": 0,
+  "results": [
+    {
+      "name": "Analyzer URL normalization strips tracking and keeps meaningful params",
+      "status": "passed"
+    },
+    {
+      "name": "PropAI pricing accepts Free and Plus and rejects contaminated examples",
+      "status": "passed"
+    },
+    {
+      "name": "PropAI positioning and CTA stay sourced to real public page content",
+      "status": "passed"
+    },
+    {
+      "name": "PropAI feature model returns semantic product capabilities",
+      "status": "passed"
+    },
+    {
+      "name": "Plausible pricing fixture preserves expected public plans",
+      "status": "passed"
+    },
+    {
+      "name": "Fathom pricing fixture preserves usage tiers and contact overage",
+      "status": "passed"
+    },
+    {
+      "name": "Duplicate homepage pricing page is invalid and cannot extract pricing",
+      "status": "passed"
+    },
+    {
+      "name": "Verified structured pricing change creates alert payload",
+      "status": "passed"
+    },
+    {
+      "name": "Invalid duplicate page suppresses change alerts",
+      "status": "passed"
+    }
+  ],
+  "trustworthy": true
+}

@@ -2,6 +2,7 @@ import * as cheerio from "cheerio";
 import { crawlerUserAgent } from "@/lib/crawler/robots";
 import type { PageType } from "@/lib/database.types";
 import { scrapePages, type ScrapedPage } from "@/lib/crawler/scraper";
+import { canonicalAnalyzerUrl } from "@/lib/intelligence/page-validation";
 import { validateUrl } from "@/lib/url-safety.server";
 import { createDefaultMonitoredPages, isBlockedCrawlPath } from "@/lib/urls";
 
@@ -113,15 +114,7 @@ function sameSite(url: string, baseUrl: string) {
 }
 
 function canonicalizeUrl(url: string, baseUrl?: string) {
-  const parsed = new URL(url, baseUrl);
-
-  parsed.hash = "";
-
-  if (parsed.pathname !== "/") {
-    parsed.pathname = parsed.pathname.replace(/\/+$/, "");
-  }
-
-  return parsed.toString();
+  return canonicalAnalyzerUrl(new URL(url, baseUrl).toString());
 }
 
 function isExcludedCandidate(url: string) {

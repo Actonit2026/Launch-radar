@@ -10,6 +10,39 @@ export type IntelligenceStatus =
   | "not_detected"
   | "unavailable";
 
+export type DetectedPageType =
+  | PageType
+  | "blog"
+  | "case_study"
+  | "unknown"
+  | "blocked"
+  | "missing"
+  | "duplicate_homepage";
+
+export type PageValidationStatus =
+  | "verified"
+  | "mismatch"
+  | "unknown"
+  | "blocked"
+  | "missing"
+  | "duplicate_homepage";
+
+export type PageValidation = {
+  requested_url: string;
+  final_url: string;
+  normalized_requested_url: string;
+  normalized_final_url: string;
+  requested_page_type: PageType;
+  detected_page_type: DetectedPageType;
+  page_type_confidence: number;
+  content_hash: string;
+  is_duplicate_of_homepage: boolean;
+  page_type_verified: boolean;
+  extraction_allowed: boolean;
+  status: PageValidationStatus;
+  warnings: string[];
+};
+
 export type FactExtractionMethod =
   | "deterministic_regex"
   | "deterministic_keyword"
@@ -243,6 +276,9 @@ export type PricingCandidateDebug = {
   accepted: boolean;
   reasons: string[];
   classification?: string;
+  ancestor_dom_path?: string;
+  context_before?: string;
+  context_after?: string;
   rejection_reason?: string;
 };
 
@@ -331,6 +367,10 @@ export type ChangelogAnalysis = {
 export type PageIntelligence = {
   sourceUrl: string;
   pageType: PageType;
+  detectedPageType: DetectedPageType;
+  pageValidation: PageValidation;
+  validForIntelligence: boolean;
+  intelligenceStatus: "valid" | "invalid_for_intelligence";
   title: string;
   fetchStatus: number | null;
   contentHash: string;
@@ -348,4 +388,5 @@ export type PageIntelligence = {
 export type PageAnalysisInput = {
   pageType: PageType;
   scrape: ScrapedPage;
+  homepageScrape?: Pick<ScrapedPage, "finalUrl" | "hash" | "rawText"> | null;
 };

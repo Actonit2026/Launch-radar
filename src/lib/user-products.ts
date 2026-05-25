@@ -42,6 +42,11 @@ function analyzedPagePayload(pages: PageIntelligence[]) {
   return pages.map((page) => ({
     source_url: page.sourceUrl,
     page_type: page.pageType,
+    detected_page_type: page.detectedPageType,
+    page_type_verified: page.pageValidation.page_type_verified,
+    valid_for_intelligence: page.validForIntelligence,
+    intelligence_status: page.intelligenceStatus,
+    page_validation: page.pageValidation,
     title: page.title,
     fetch_status: page.fetchStatus,
     content_hash: page.contentHash,
@@ -92,7 +97,7 @@ async function latestCompetitorSnapshots(supabase: Supabase, userId: string) {
   for (const competitor of competitors ?? []) {
     const { data: snapshot, error: snapshotError } = await supabase
       .from("competitor_intelligence_snapshots")
-      .select("facts")
+      .select("facts, analyzed_pages")
       .eq("competitor_id", competitor.id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -102,7 +107,18 @@ async function latestCompetitorSnapshots(supabase: Supabase, userId: string) {
       throw new Error(snapshotError.message);
     }
 
-    const facts = snapshot ? parseStructuredFacts(snapshot.facts) : [];
+    const hasValidAnalyzedPage =
+      Array.isArray(snapshot?.analyzed_pages) &&
+      snapshot.analyzed_pages.some((page) => {
+        if (!page || typeof page !== "object" || Array.isArray(page)) {
+          return false;
+        }
+
+        return (page as Record<string, unknown>).valid_for_intelligence === true;
+      });
+    const facts = snapshot && hasValidAnalyzedPage
+      ? parseStructuredFacts(snapshot.facts)
+      : [];
 
     if (facts.length) {
       snapshots.push({
@@ -138,12 +154,16 @@ export async function analyzeUserProduct({
     const discoveredPages = await discoverCompetitorPages(baseUrl, {
       submittedPageUrl,
     });
+    const homepageScrape =
+      discoveredPages.find((page) => page.pageType === "homepage")?.scrape ??
+      null;
     const intelligencePages = discoveredPages
       .filter((page) => page.scrape.ok && page.scrape.rawText)
       .map((page) =>
         analyzePageIntelligence({
           pageType: page.pageType,
           scrape: page.scrape,
+          homepageScrape,
         }),
       );
 
@@ -201,7 +221,9 @@ export async function analyzeUserProduct({
       userId,
     );
     const recommendations = buildProductRecommendations({
-      productFacts: facts,
+      productFacts: intelligencePages
+        .filter((page) => page.validForIntelligence)
+        .flatMap((page) => page.facts),
       competitorSnapshots,
     });
 

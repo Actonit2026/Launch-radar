@@ -24,12 +24,15 @@ const targetCustomerPatterns = [
 ];
 const useCasePattern =
   /\b(?:use case|workflow|for teams that|to help|so you can|without)\b/i;
+const positioningNoisePattern =
+  /\b(?:example|sample|template|generated proposal|proposal sample|job post|project budget|article budget|per article|per hour|\/hr|salary|budget|freelance job|client project)\b|[$\u20AC\u00A3]\s?\d|\d\s?[$\u20AC\u00A3]|\b(?:usd|eur|gbp)\s?\d/i;
 
 function usableLine(line: string) {
   return (
     line.length >= 8 &&
     line.length <= 180 &&
     !isGenericBusinessSummary(line) &&
+    !positioningNoisePattern.test(line) &&
     !/^(?:pricing|features|docs|login|log in|sign in|sign up|dashboard|copy to clipboard|learn more|view demo|live demo)$/i.test(line) &&
     !/\b(?:login to your dashboard|forgot password|reset password|copy to clipboard|npm install|import \{|const\s|function\s*\(|curl\s)/i.test(line)
   );

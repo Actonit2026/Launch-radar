@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DetectedChange, Json, PageType } from "@/lib/database.types";
 import type { ScrapedPage } from "@/lib/crawler/scraper";
 import { analyzePageIntelligence } from "@/lib/intelligence/analyze";
+import { canonicalAnalyzerUrl } from "@/lib/intelligence/page-validation";
 import type {
   CtaFact,
   FeatureFact,
@@ -44,6 +45,11 @@ type SnapshotFeature = SnapshotTextFact & {
 
 export type SnapshotFacts = {
   page_type: PageType;
+  detected_page_type: PageIntelligence["detectedPageType"];
+  page_type_verified: boolean;
+  valid_for_intelligence: boolean;
+  intelligence_status: PageIntelligence["intelligenceStatus"];
+  page_validation: PageIntelligence["pageValidation"];
   source_url: string;
   title: string;
   availability: {
@@ -142,16 +148,6 @@ export type SnapshotComparison = {
   ignoredReasons: string[];
 };
 
-const trackingParams = new Set([
-  "fbclid",
-  "gclid",
-  "gbraid",
-  "mc_cid",
-  "mc_eid",
-  "msclkid",
-  "wbraid",
-]);
-
 const entityMap: Record<string, string> = {
   amp: "&",
   gt: ">",
@@ -189,30 +185,7 @@ function normalizeUrl(value: string | null | undefined) {
     return "";
   }
 
-  try {
-    const url = new URL(value);
-    const paramsToDelete: string[] = [];
-
-    url.hash = "";
-    url.hostname = url.hostname.toLowerCase();
-    url.searchParams.forEach((_, key) => {
-      const normalizedKey = key.toLowerCase();
-
-      if (normalizedKey.startsWith("utm_") || trackingParams.has(normalizedKey)) {
-        paramsToDelete.push(key);
-      }
-    });
-    paramsToDelete.forEach((key) => url.searchParams.delete(key));
-    url.searchParams.sort();
-
-    if (url.pathname !== "/") {
-      url.pathname = url.pathname.replace(/\/+$/, "");
-    }
-
-    return url.toString();
-  } catch {
-    return normalizeComparableText(value);
-  }
+  return canonicalAnalyzerUrl(value);
 }
 
 export function normalizeComparableText(value: string) {
@@ -436,6 +409,11 @@ function compactPageIntelligence(page: PageIntelligence): SnapshotFacts {
 
   return {
     page_type: page.pageType,
+    detected_page_type: page.detectedPageType,
+    page_type_verified: page.pageValidation.page_type_verified,
+    valid_for_intelligence: page.validForIntelligence,
+    intelligence_status: page.intelligenceStatus,
+    page_validation: page.pageValidation,
     source_url: normalizeUrl(page.sourceUrl),
     title: page.title,
     availability: {
@@ -524,6 +502,10 @@ function hashableFacts(facts: SnapshotFacts) {
 
   return {
     page_type: facts.page_type,
+    detected_page_type: facts.detected_page_type,
+    page_type_verified: facts.page_type_verified,
+    valid_for_intelligence: facts.valid_for_intelligence,
+    intelligence_status: facts.intelligence_status,
     availability: facts.availability,
     pricing: {
       status: facts.pricing.status,
@@ -586,11 +568,13 @@ function hashableFacts(facts: SnapshotFacts) {
 export function buildSnapshotAnalysis({
   pageType,
   scrape,
+  homepageScrape,
 }: {
   pageType: PageType;
   scrape: ScrapedPage;
+  homepageScrape?: Pick<ScrapedPage, "finalUrl" | "hash" | "rawText"> | null;
 }): SnapshotAnalysis {
-  const intelligence = analyzePageIntelligence({ pageType, scrape });
+  const intelligence = analyzePageIntelligence({ pageType, scrape, homepageScrape });
   const canonicalContent = normalizeForChangeDetection(scrape.rawText);
   const structuredFacts = compactPageIntelligence(intelligence);
   structuredFacts.availability = {
@@ -617,9 +601,11 @@ export function buildSnapshotAnalysis({
 export function buildUnavailableSnapshotAnalysis({
   pageType,
   scrape,
+  homepageScrape,
 }: {
   pageType: PageType;
   scrape: ScrapedPage;
+  homepageScrape?: Pick<ScrapedPage, "finalUrl" | "hash" | "rawText"> | null;
 }): SnapshotAnalysis {
   const unavailableScrape = {
     ...scrape,
@@ -628,7 +614,7 @@ export function buildUnavailableSnapshotAnalysis({
     ok: false,
   };
 
-  return buildSnapshotAnalysis({ pageType, scrape: unavailableScrape });
+  return buildSnapshotAnalysis({ pageType, scrape: unavailableScrape, homepageScrape });
 }
 
 export function snapshotFactsToJson(facts: SnapshotFacts): Json {
@@ -741,6 +727,31 @@ function highestSeverity(changes: MeaningfulChange[]): Severity {
   }
 
   return "low";
+}
+
+function factsAreVerifiedForAlert(facts: SnapshotFacts | null | undefined) {
+  return (
+    Boolean(facts) &&
+    facts?.valid_for_intelligence === true &&
+    facts?.page_type_verified === true &&
+    facts?.detected_page_type === facts?.page_type
+  );
+}
+
+function verifiedEvidence(change: MeaningfulChange) {
+  return (
+    change.confidenceScore >= 0.72 &&
+    change.evidence.length > 0 &&
+    change.evidence.every((item) => {
+      const normalized = normalizeUrl(item.source_url);
+
+      return (
+        normalized &&
+        !/[?&](?:utm_|gclid|fbclid|msclkid)/i.test(normalized) &&
+        item.evidence_text.trim().length > 0
+      );
+    })
+  );
 }
 
 function compareAvailability(previous: SnapshotFacts, next: SnapshotFacts) {
@@ -1373,7 +1384,10 @@ export function compareSnapshotAnalyses({
   const structuredFactsChanged =
     previousStructuredFactsHash !== current.structuredFactsHash;
   const ignoredReasons: string[] = [];
-  const meaningfulChanges = previousFacts
+  const verificationAllowsAlert =
+    factsAreVerifiedForAlert(previousFacts) &&
+    factsAreVerifiedForAlert(current.structuredFacts);
+  const meaningfulChanges = previousFacts && verificationAllowsAlert
     ? [
         ...compareAvailability(previousFacts, current.structuredFacts),
         ...comparePricing(previousFacts, current.structuredFacts),
@@ -1382,8 +1396,14 @@ export function compareSnapshotAnalyses({
         ...compareFeatures(previousFacts, current.structuredFacts),
         ...compareChangelog(previousFacts, current.structuredFacts),
         ...compareBusinessModels(previousFacts, current.structuredFacts),
-      ]
+      ].filter(verifiedEvidence)
     : [];
+
+  if (previousFacts && !verificationAllowsAlert) {
+    ignoredReasons.push(
+      "No change created: page type was not verified for both snapshots, so raw or ambiguous content cannot power alerts.",
+    );
+  }
 
   if (rawChanged && !canonicalChanged && !structuredFactsChanged) {
     ignoredReasons.push(
@@ -1418,8 +1438,9 @@ export function compareSnapshotAnalyses({
 }
 
 export function createDetectedChangePayload(changes: MeaningfulChange[]) {
-  const severity = highestSeverity(changes);
-  const changesWithValues = changes.filter(
+  const verifiedChanges = changes.filter(verifiedEvidence);
+  const severity = highestSeverity(verifiedChanges);
+  const changesWithValues = verifiedChanges.filter(
     (change) => change.oldValue !== undefined || change.newValue !== undefined,
   );
 
@@ -1442,10 +1463,10 @@ export function createDetectedChangePayload(changes: MeaningfulChange[]) {
   const summary =
     categoryChanges.length > 1
       ? `${formatPageTypeFromCategory(primary.category)} changed with ${categoryChanges.length} verified updates.`
-      : changes.length === 1
+      : verifiedChanges.length === 1
       ? primary.summary
-      : `${primary.summary} ${changes.length - 1} other meaningful change${
-          changes.length === 2 ? "" : "s"
+      : `${primary.summary} ${verifiedChanges.length - 1} other meaningful change${
+          verifiedChanges.length === 2 ? "" : "s"
         } detected.`;
   const evidenceJson = {
     primary_evidence: primary.evidence,

@@ -35,6 +35,9 @@ type PriceCandidate = {
   score: number;
   reasons: string[];
   classification: string;
+  ancestorDomPath?: string;
+  contextBefore?: string;
+  contextAfter?: string;
   rejected?: string;
   ambiguous?: boolean;
 };
@@ -275,6 +278,9 @@ function candidateDebug(
     accepted: !candidate.rejected && !candidate.ambiguous,
     reasons: candidate.reasons,
     classification: candidate.classification,
+    ancestor_dom_path: candidate.ancestorDomPath,
+    context_before: candidate.contextBefore,
+    context_after: candidate.contextAfter,
     ...(candidate.rejected || candidate.ambiguous
       ? {
           rejection_reason:
@@ -332,6 +338,14 @@ function candidatesFromContext({
         pageType,
         rawText: match[0],
       });
+      const contextBefore = context
+        .slice(Math.max(0, matchIndex - 300), matchIndex)
+        .replace(/\s+/g, " ")
+        .trim();
+      const contextAfter = context
+        .slice(matchIndex + match[0].length, matchIndex + match[0].length + 300)
+        .replace(/\s+/g, " ")
+        .trim();
       const classified = classifyPricingContext({
         text: immediateContext || localContext,
         section,
@@ -340,7 +354,7 @@ function candidatesFromContext({
       const rejected =
         !classified.accepted
           ? classified.rejectionReason ?? "non_product_pricing_unknown"
-          : scoring.score < 35
+          : scoring.score < 60
           ? "confidence_below_threshold"
           : amount <= 0
             ? "non_positive_amount"
@@ -362,8 +376,13 @@ function candidatesFromContext({
           `classification:${classified.classification}`,
         ],
         classification: classified.classification,
+        ancestorDomPath: `page_type:${pageType} > section:${section}${
+          heading ? ` > heading:${heading}` : ""
+        }`,
+        contextBefore,
+        contextAfter,
         rejected,
-        ambiguous: scoring.score >= 35 && scoring.score < 60,
+        ambiguous: scoring.score >= 60 && scoring.score < 80,
       });
     }
   }

@@ -107,6 +107,11 @@ function compactPage(page: PageIntelligence) {
   return {
     source_url: page.sourceUrl,
     page_type: page.pageType,
+    detected_page_type: page.detectedPageType,
+    page_type_verified: page.pageValidation.page_type_verified,
+    valid_for_intelligence: page.validForIntelligence,
+    intelligence_status: page.intelligenceStatus,
+    page_validation: page.pageValidation,
     title: page.title,
     fetch_status: page.fetchStatus,
     content_hash: page.contentHash,

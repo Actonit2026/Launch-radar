@@ -341,11 +341,12 @@ async function saveSnapshot(
   supabase: Supabase,
   monitoredPage: MonitoredPage,
   scrape: ScrapedPage,
+  homepageScrape?: Pick<ScrapedPage, "finalUrl" | "hash" | "rawText"> | null,
 ) {
   return saveAnalyzedSnapshot(
     supabase,
     monitoredPage,
-    buildSnapshotAnalysis({ pageType: monitoredPage.page_type, scrape }),
+    buildSnapshotAnalysis({ pageType: monitoredPage.page_type, scrape, homepageScrape }),
   );
 }
 
@@ -353,6 +354,7 @@ async function saveUnavailableSnapshot(
   supabase: Supabase,
   monitoredPage: MonitoredPage,
   scrape: ScrapedPage,
+  homepageScrape?: Pick<ScrapedPage, "finalUrl" | "hash" | "rawText"> | null,
 ) {
   return saveAnalyzedSnapshot(
     supabase,
@@ -360,6 +362,7 @@ async function saveUnavailableSnapshot(
     buildUnavailableSnapshotAnalysis({
       pageType: monitoredPage.page_type,
       scrape,
+      homepageScrape,
     }),
   );
 }
@@ -368,11 +371,13 @@ async function saveBaselineSnapshot(
   supabase: Supabase,
   monitoredPage: MonitoredPage,
   scrape: ScrapedPage,
+  homepageScrape?: Pick<ScrapedPage, "finalUrl" | "hash" | "rawText"> | null,
 ) {
   const existingSnapshot = await latestSnapshot(supabase, monitoredPage.id);
   const analysis = buildSnapshotAnalysis({
     pageType: monitoredPage.page_type,
     scrape,
+    homepageScrape,
   });
   const previous = existingSnapshot
     ? previousSnapshotState(monitoredPage, existingSnapshot)
@@ -522,6 +527,8 @@ export async function createInitialMonitoringSetup(
   }
 
   const fallbackByUrl = byRequestedUrl(fallbackScrapes);
+  const homepageScrape =
+    discoveredByPageType.get("homepage")?.scrape ?? fallbackByUrl.get(baseUrl) ?? null;
 
   for (const monitoredPage of monitoredPages ?? []) {
     const scrape =
@@ -536,8 +543,8 @@ export async function createInitialMonitoringSetup(
 
     try {
       const result = scrape.ok
-        ? await saveSnapshot(supabase, monitoredPage, scrape)
-        : await saveUnavailableSnapshot(supabase, monitoredPage, scrape);
+        ? await saveSnapshot(supabase, monitoredPage, scrape, homepageScrape)
+        : await saveUnavailableSnapshot(supabase, monitoredPage, scrape, homepageScrape);
       snapshotsCreated += result.snapshotCreated ? 1 : 0;
     } catch (error) {
       crawlWarning =
@@ -552,6 +559,7 @@ export async function createInitialMonitoringSetup(
       analyzePageIntelligence({
         pageType: page.pageType,
         scrape: page.scrape,
+        homepageScrape,
       }),
     );
   stageTimings.push(measureStage("extraction", extractionStartedAt));
@@ -786,6 +794,8 @@ export async function rerunCompetitorIntelligence(
   const scrapes = await scrapePages(pages.map((page) => page.url));
   stageTimings.push(measureStage("fetch", fetchStartedAt));
   const scrapeByUrl = byRequestedUrl(scrapes);
+  const homepagePage = pages.find((page) => page.page_type === "homepage");
+  const homepageScrape = homepagePage ? scrapeByUrl.get(homepagePage.url) ?? null : null;
   const intelligencePages: PageIntelligence[] = [];
   let baselineSnapshotsCreated = 0;
   let failed = 0;
@@ -805,12 +815,18 @@ export async function rerunCompetitorIntelligence(
       analyzePageIntelligence({
         pageType: page.page_type as PageType,
         scrape,
+        homepageScrape,
       }),
     );
 
     if (baselinePageIdSet.has(page.id)) {
       try {
-        const baseline = await saveBaselineSnapshot(supabase, page, scrape);
+        const baseline = await saveBaselineSnapshot(
+          supabase,
+          page,
+          scrape,
+          homepageScrape,
+        );
         baselineSnapshotsCreated += baseline.snapshotCreated ? 1 : 0;
       } catch (error) {
         failed += 1;
@@ -1079,6 +1095,14 @@ export async function scanMonitoredPagesForUser(
   const scrapes = await scrapePages(pages.map((page) => page.url));
   stageTimings.push(measureStage("fetch", fetchStartedAt));
   const scrapeByUrl = byRequestedUrl(scrapes);
+  const homepageScrapeByCompetitor = new Map(
+    pages
+      .filter((page) => page.page_type === "homepage")
+      .map((page) => [
+        page.competitor_id,
+        scrapeByUrl.get(page.url) ?? null,
+      ]),
+  );
   const scanOutcomesByCompetitor = new Map<string, ManualScanDebugOutcome[]>();
   const pendingNotifications: PendingChangeNotification[] = [];
   const result: ScanResult = {
@@ -1110,6 +1134,8 @@ export async function scanMonitoredPagesForUser(
 
   for (const monitoredPage of pages) {
     const scrape = scrapeByUrl.get(monitoredPage.url);
+    const homepageScrape =
+      homepageScrapeByCompetitor.get(monitoredPage.competitor_id) ?? null;
 
     if (!scrape || !scrape.ok) {
       const error = scrapeFailureMessage(scrape);
@@ -1132,6 +1158,7 @@ export async function scanMonitoredPagesForUser(
             supabase,
             monitoredPage,
             scrape,
+            homepageScrape,
           );
 
           result.checked += 1;
@@ -1182,7 +1209,12 @@ export async function scanMonitoredPagesForUser(
     }
 
     try {
-      const saved = await saveSnapshot(supabase, monitoredPage, scrape);
+      const saved = await saveSnapshot(
+        supabase,
+        monitoredPage,
+        scrape,
+        homepageScrape,
+      );
       result.checked += 1;
       result.snapshotsCreated += saved.snapshotCreated ? 1 : 0;
       result.changed += saved.changed ? 1 : 0;

@@ -39,6 +39,10 @@ export type IntelligenceFactView = {
 export type AnalyzedPageView = {
   sourceUrl: string;
   pageType: string;
+  detectedPageType: string;
+  pageTypeVerified: boolean;
+  validForIntelligence: boolean;
+  intelligenceStatus: "valid" | "invalid_for_intelligence";
   title: string;
   fetchStatus: number | null;
   contentHash: string;
@@ -331,6 +335,11 @@ function parseAnalyzedPage(value: unknown): AnalyzedPageView | null {
   return {
     sourceUrl,
     pageType: stringOrNull(value.page_type) ?? "unknown",
+    detectedPageType: stringOrNull(value.detected_page_type) ?? "unknown",
+    pageTypeVerified: value.page_type_verified === true,
+    validForIntelligence: value.valid_for_intelligence === true,
+    intelligenceStatus:
+      value.intelligence_status === "valid" ? "valid" : "invalid_for_intelligence",
     title: stringOrNull(value.title) ?? "Untitled page",
     fetchStatus:
       typeof value.fetch_status === "number" ? value.fetch_status : null,
@@ -350,23 +359,53 @@ export function parseIntelligenceSnapshot(
 
   const summary = row.summary ?? row.summary_json ?? {};
   const facts = row.facts ?? row.structured_facts_json ?? [];
+  const analyzedPages = Array.isArray(row.analyzed_pages)
+    ? row.analyzed_pages
+        .map(parseAnalyzedPage)
+        .filter((page): page is AnalyzedPageView => Boolean(page))
+    : [];
+  const hasValidIntelligencePage = analyzedPages.some(
+    (page) => page.validForIntelligence && page.pageTypeVerified,
+  );
+  const parsedSummary = parseSummary(summary);
+  const parsedFacts = Array.isArray(facts)
+    ? facts.map(parseFact).filter((fact): fact is IntelligenceFactView =>
+        Boolean(fact),
+      )
+    : [];
+  const invalidLegacySnapshot = !hasValidIntelligencePage;
 
   return {
     id: row.id,
     createdAt: row.created_at,
     source: row.source,
-    summary: parseSummary(summary),
-    facts: Array.isArray(facts)
-      ? facts.map(parseFact).filter((fact): fact is IntelligenceFactView =>
-          Boolean(fact),
+    summary: invalidLegacySnapshot
+      ? {
+          ...parsedSummary,
+          executiveSummary: LIMITED_DATA_MESSAGE,
+          pricingSummary: null,
+          positioningSummary: null,
+          featureSummary: null,
+          ctaSummary: null,
+          unknowns: Array.from(
+            new Set([
+              ...parsedSummary.unknowns,
+              "Previous intelligence snapshot lacked verified page-type metadata.",
+            ]),
+          ),
+          overallConfidence: "low",
+        }
+      : parsedSummary,
+    facts: invalidLegacySnapshot ? [] : parsedFacts,
+    analyzedPages,
+    warnings: invalidLegacySnapshot
+      ? Array.from(
+          new Set([
+            ...row.warnings,
+            "Previous intelligence snapshot is hidden until a verified rescan completes.",
+          ]),
         )
-      : [],
-    analyzedPages: Array.isArray(row.analyzed_pages)
-      ? row.analyzed_pages
-          .map(parseAnalyzedPage)
-          .filter((page): page is AnalyzedPageView => Boolean(page))
-      : [],
-    warnings: row.warnings,
+      : row.warnings,
   };
 }
 

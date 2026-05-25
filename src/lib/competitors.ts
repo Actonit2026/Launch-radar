@@ -77,6 +77,17 @@ function isRecentChange(change: RecentChange | null): change is RecentChange {
   return Boolean(change);
 }
 
+function isTrustedDetectedChange<T extends Pick<DetectedChange, "confidence_score" | "evidence_json">>(
+  change: T,
+) {
+  const evidenceText = JSON.stringify(change.evidence_json ?? {});
+
+  return (
+    (change.confidence_score ?? 0) >= 0.72 &&
+    !/[?&](?:utm_|gclid|fbclid|msclkid)|duplicate_homepage/i.test(evidenceText)
+  );
+}
+
 function latestCheckedAt(pages: MonitoredPage[]) {
   const checkedDates = pages
     .map((page) => page.last_checked_at)
@@ -159,6 +170,7 @@ export async function getDashboardData(
         .from("detected_changes")
         .select("*")
         .in("monitored_page_id", pageIds)
+        .gte("confidence_score", 0.72)
         .order("created_at", { ascending: false })
         .limit(10)
     : { data: [], error: null };
@@ -172,6 +184,7 @@ export async function getDashboardData(
         .from("detected_changes")
         .select("id", { count: "exact", head: true })
         .in("monitored_page_id", pageIds)
+        .gte("confidence_score", 0.72)
     : { count: 0, error: null };
 
   if (changeCountError) {
@@ -243,6 +256,7 @@ export async function getDashboardData(
   }
 
   const recentChanges = (changes ?? [])
+    .filter(isTrustedDetectedChange)
     .map((change) => {
       const page = pageById.get(change.monitored_page_id);
 
@@ -353,6 +367,7 @@ export async function getCompetitorDetail(
         .from("detected_changes")
         .select("*")
         .in("monitored_page_id", pageIds)
+        .gte("confidence_score", 0.72)
         .order("created_at", { ascending: false })
     : { data: [], error: null };
 
@@ -362,6 +377,7 @@ export async function getCompetitorDetail(
 
   const pageById = new Map(pageRows.map((page) => [page.id, page]));
   const changesWithPages = (changes ?? [])
+    .filter(isTrustedDetectedChange)
     .map((change) => {
       const page = pageById.get(change.monitored_page_id);
       return page ? { ...change, page } : null;

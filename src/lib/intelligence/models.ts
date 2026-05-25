@@ -855,6 +855,7 @@ export function buildBusinessModels({
   ctas,
   features,
   changelog,
+  extractionGates,
 }: {
   scrape: ScrapedPage;
   pageType: PageType;
@@ -863,19 +864,46 @@ export function buildBusinessModels({
   ctas: CtaAnalysis;
   features: FeatureAnalysis;
   changelog: import("@/lib/intelligence/types").ChangelogAnalysis;
+  extractionGates?: Partial<{
+    pricing: boolean;
+    positioning: boolean;
+    cta: boolean;
+    features: boolean;
+    momentum: boolean;
+    trust: boolean;
+    category: boolean;
+  }>;
 }): BusinessModels {
-  const pricingModel = extractPricingModel({ pricing, ctas, scrape, pageType });
-  const positioningModel = extractPositioningModel({ positioning, scrape });
-  const ctaModel = extractCTAModel(ctas);
-  const featureModel = extractFeatureModel(features);
-  const momentumModel = extractMomentumModel({ scrape, changelog });
+  const gates = {
+    pricing: true,
+    positioning: true,
+    cta: true,
+    features: true,
+    momentum: true,
+    trust: true,
+    category: true,
+    ...extractionGates,
+  };
+  const pricingModel = gates.pricing
+    ? extractPricingModel({ pricing, ctas, scrape, pageType })
+    : emptyPricingModel();
+  const positioningModel = gates.positioning
+    ? extractPositioningModel({ positioning, scrape })
+    : emptyPositioningModel();
+  const ctaModel = gates.cta ? extractCTAModel(ctas) : emptyCtaModel();
+  const featureModel = gates.features ? extractFeatureModel(features) : emptyFeatureModel();
+  const momentumModel = gates.momentum
+    ? extractMomentumModel({ scrape, changelog })
+    : emptyMomentumModel();
   const availabilityModel = extractAvailabilityModel({ scrape, pageType });
-  const trustModel = extractTrustModel(scrape);
-  const categoryModel = extractCategoryModel({
-    scrape,
-    positioning: positioningModel,
-    features: featureModel,
-  });
+  const trustModel = gates.trust ? extractTrustModel(scrape) : emptyTrustModel();
+  const categoryModel = gates.category
+    ? extractCategoryModel({
+        scrape,
+        positioning: positioningModel,
+        features: featureModel,
+      })
+    : emptyCategoryModel();
 
   return {
     pricing: pricingModel,
@@ -886,6 +914,96 @@ export function buildBusinessModels({
     availability: availabilityModel,
     trust: trustModel,
     category: categoryModel,
+  };
+}
+
+function emptyPricingModel(): PricingModel {
+  return {
+    pricing_visibility: "unknown",
+    pricing_model: "unknown",
+    pricing_model_type: "unknown",
+    billing_modes: [],
+    plans: [],
+    usage_tiers: [],
+    enterprise_options: [],
+    evidence: [],
+    confidence: "low",
+    completeness_score: 0,
+    missing_possible_data: ["page_type_not_verified"],
+  };
+}
+
+function emptyPositioningModel(): PositioningModel {
+  return {
+    category: null,
+    target_customers: [],
+    use_cases: [],
+    value_props: [],
+    differentiators: [],
+    pain_points: [],
+    outcomes_promised: [],
+    evidence: [],
+    confidence: "low",
+  };
+}
+
+function emptyCtaModel(): CtaModel {
+  return {
+    primary_cta: null,
+    secondary_ctas: [],
+    cta_groups: [],
+    funnel_intent: "unclear",
+    evidence: [],
+    confidence: "low",
+  };
+}
+
+function emptyFeatureModel(): FeatureModel {
+  return {
+    feature_categories: [],
+    features: [],
+    integrations: [],
+    workflows: [],
+    proof_points: [],
+    evidence: [],
+    confidence: "low",
+  };
+}
+
+function emptyMomentumModel(): MomentumModel {
+  return {
+    has_changelog: false,
+    update_sources: [],
+    recent_updates: [],
+    update_frequency_estimate: "unknown",
+    last_visible_update: null,
+    release_themes: [],
+    evidence: [],
+    confidence: "low",
+  };
+}
+
+function emptyTrustModel(): TrustModel {
+  return {
+    testimonials_detected: false,
+    customer_logos_detected: false,
+    user_counts: [],
+    review_mentions: [],
+    security_mentions: [],
+    compliance_mentions: [],
+    evidence: [],
+    confidence: "low",
+  };
+}
+
+function emptyCategoryModel(): CategoryModel {
+  return {
+    market_category: null,
+    adjacent_categories: [],
+    likely_audience: [],
+    business_model_signals: [],
+    confidence: "low",
+    evidence: [],
   };
 }
 
