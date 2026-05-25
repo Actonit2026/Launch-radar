@@ -444,7 +444,9 @@ ${failed.length ? "- Fix failed V13 checks before private beta." : "- No local V
 - Live paid checkout/webhook verification remains blocked until production Stripe env vars are configured.
 
 ## SECTION M - Manual actions required
-- Add STRIPE_SECRET_KEY, STRIPE_PRO_PRICE_ID, and STRIPE_WEBHOOK_SECRET in Vercel Production before exposing Pro checkout.
+- Add STRIPE_SECRET_KEY in Vercel Production from Stripe Developers > API keys.
+- Add STRIPE_PRO_PRICE_ID=price_1TZmuPD81h8gl4lnicOj7MO1 in Vercel Production.
+- Add STRIPE_WEBHOOK_SECRET in Vercel Production after creating the production webhook endpoint for /api/stripe/webhook.
 - Add annual/business Stripe price IDs only when those products should be visible.
 - Redeploy production after setting Stripe values and run a live Checkout + webhook test.
 
