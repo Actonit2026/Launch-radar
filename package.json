@@ -12,6 +12,7 @@
     "test:v4:real": "node scripts/final-v4-real-world.mjs",
     "test:v6:validation": "node scripts/final-v6-validation.mjs",
     "test:v7:prelaunch": "node scripts/final-v7-prelaunch.mjs",
+    "test:v8:reliability": "node scripts/final-v7-prelaunch.mjs",
     "prelaunch:scorecard": "node scripts/prelaunch-scorecard.mjs"
   },
   "dependencies": {

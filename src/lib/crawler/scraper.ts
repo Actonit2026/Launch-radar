@@ -42,7 +42,11 @@ export type ScrapedPage = {
 };
 
 const blockedResourceTypes = new Set(["font", "image", "media"]);
-const fetchTimeoutMs = 20000;
+const configuredFetchTimeoutMs = Number(process.env.LAUNCHRADAR_FETCH_TIMEOUT_MS);
+const fetchTimeoutMs =
+  Number.isFinite(configuredFetchTimeoutMs) && configuredFetchTimeoutMs > 0
+    ? configuredFetchTimeoutMs
+    : 6500;
 const staticMeaningfulTextThreshold = 140;
 const domainDelayMs = 500;
 const lastFetchByDomain = new Map<string, number>();

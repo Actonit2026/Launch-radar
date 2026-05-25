@@ -4,6 +4,7 @@ import type { DiscoveredPage } from "@/lib/crawler/discovery";
 import type { ScrapedPage } from "@/lib/crawler/scraper";
 import type { Database, Json, MonitoredPage, ScanDebugLog } from "@/lib/database.types";
 import type { PageIntelligence, StructuredFact } from "@/lib/intelligence/types";
+import type { ScanQualitySummary } from "@/lib/scan-quality";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -238,6 +239,7 @@ export function buildInitialSetupDebugPayload({
   monitoredPages,
   intelligencePages,
   summary,
+  scanQuality,
   result,
 }: {
   baseUrl: string;
@@ -246,6 +248,7 @@ export function buildInitialSetupDebugPayload({
   monitoredPages: MonitoredPage[];
   intelligencePages: PageIntelligence[];
   summary: IntelligenceSummaryResult | null;
+  scanQuality?: ScanQualitySummary | null;
   result: {
     pagesCreated: number;
     snapshotsCreated: number;
@@ -282,6 +285,7 @@ export function buildInitialSetupDebugPayload({
           output: compactSummary(summary),
         }
       : null,
+    scan_quality: scanQuality ?? null,
     result,
   };
 }
@@ -291,12 +295,14 @@ export function buildManualAnalysisDebugPayload({
   scrapes,
   intelligencePages,
   summary,
+  scanQuality,
   result,
 }: {
   monitoredPages: MonitoredPage[];
   scrapes: ScrapedPage[];
   intelligencePages: PageIntelligence[];
   summary: IntelligenceSummaryResult | null;
+  scanQuality?: ScanQualitySummary | null;
   result: {
     pagesAnalyzed: number;
     intelligenceSnapshotCreated: boolean;
@@ -333,6 +339,7 @@ export function buildManualAnalysisDebugPayload({
           output: compactSummary(summary),
         }
       : null,
+    scan_quality: scanQuality ?? null,
     result,
   };
 }
@@ -341,15 +348,18 @@ export function buildManualScanDebugPayload({
   pages,
   scrapes,
   outcomes,
+  scanQuality,
 }: {
   pages: MonitoredPage[];
   scrapes: ScrapedPage[];
   outcomes: unknown[];
+  scanQuality?: ScanQualitySummary | null;
 }) {
   return {
     monitored_pages: pages.map(compactMonitoredPage),
     page_fetches: scrapes.map(compactScrape),
     outcomes,
+    scan_quality: scanQuality ?? null,
   };
 }
 

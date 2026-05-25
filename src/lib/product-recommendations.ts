@@ -313,6 +313,132 @@ function visibilityForConfidence(score: number) {
   return "collapsed";
 }
 
+function scoreOutOfTen(value: number) {
+  return Math.max(0, Math.min(10, Number(value.toFixed(1))));
+}
+
+function specificTitleScore(title: string) {
+  const normalized = title.toLowerCase();
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const hasSpecificAction =
+    /\b(?:test|make|clarify|surface|reduce|compare|add|show|replace|tighten)\b/i.test(
+      title,
+    );
+  const generic =
+    ["improve cta", "add pricing", "clarify positioning"].includes(normalized) ||
+    words.length < 4;
+
+  return generic ? 3 : hasSpecificAction ? 9 : 7;
+}
+
+function displayTierForRecommendationValue(score: number) {
+  if (score >= 65) {
+    return "prioritize";
+  }
+
+  if (score >= 55) {
+    return "show";
+  }
+
+  if (score >= 45) {
+    return "hide";
+  }
+
+  return "reject";
+}
+
+function recommendationValueReview({
+  type,
+  title,
+  explanation,
+  userFact,
+  supports,
+  score,
+  novelty,
+  priority,
+  actionability,
+}: {
+  type: string;
+  title: string;
+  explanation: string;
+  userFact: StructuredFact;
+  supports: CompetitorSupport[];
+  score: number;
+  novelty: number;
+  priority: number;
+  actionability: "medium" | "high";
+}) {
+  const evidenceCount = supports.length + 1;
+  const specificity = specificTitleScore(title);
+  const evidence = scoreOutOfTen(
+    Math.min(10, evidenceCount * 1.7 + averageSupportConfidence(supports) * 4),
+  );
+  const actionabilityValue = scoreOutOfTen(actionabilityScore(actionability) * 10);
+  const noveltyValue = scoreOutOfTen(novelty * 10);
+  const businessImpact = scoreOutOfTen(impactScore(type) * 10);
+  const founderUsefulness = scoreOutOfTen(
+    priority / 15 + Math.min(3, supports.length) + specificity / 4,
+  );
+  const confidenceValue = scoreOutOfTen(score / 10);
+  const total = Math.round(
+    specificity +
+      evidence +
+      actionabilityValue +
+      noveltyValue +
+      businessImpact +
+      founderUsefulness +
+      confidenceValue,
+  );
+  const competitorValues = Array.from(
+    new Set(supports.map((support) => support.fact.value.trim()).filter(Boolean)),
+  );
+  const survives =
+    total >= 45 &&
+    evidence >= 6 &&
+    confidenceValue >= 6 &&
+    competitorValues.length > 0 &&
+    reliable(userFact);
+
+  return {
+    total,
+    max: 70,
+    display_tier: displayTierForRecommendationValue(total),
+    components: {
+      specificity,
+      evidence,
+      actionability: actionabilityValue,
+      novelty: noveltyValue,
+      business_impact: businessImpact,
+      founder_usefulness: founderUsefulness,
+      confidence: confidenceValue,
+    },
+    adversarial_review: {
+      supporting_argument: `${supports.length} competitor baseline${
+        supports.length === 1 ? "" : "s"
+      } and one user-product fact support this recommendation.`,
+      counterargument:
+        "Competitor behavior may not fit this product's market, pricing motion, or conversion model.",
+      missing_evidence:
+        "No analytics, user interviews, or A/B-test outcome data is available inside LaunchRadar.",
+      alternative_explanation:
+        "The difference may reflect a deliberate go-to-market strategy rather than a weakness.",
+      survives,
+    },
+    implementability: {
+      what_changes: title,
+      why: explanation,
+      expected_impact:
+        "A clearer public-page test with lower visitor decision friction.",
+      difficulty:
+        actionability === "high"
+          ? "Low to medium: copy/layout test"
+          : "Medium: positioning decision required",
+      time_estimate:
+        actionability === "high" ? "1-3 hours for a page experiment" : "1-2 days for a focused messaging pass",
+    },
+  };
+}
+
 function competitorConsensusSummary(supports: CompetitorSupport[]) {
   const requirement = consensusRequirement(supports);
 
@@ -363,6 +489,26 @@ function createRecommendation({
     return null;
   }
 
+  const valueReview = recommendationValueReview({
+    type,
+    title,
+    explanation,
+    userFact,
+    supports,
+    score,
+    novelty,
+    priority,
+    actionability,
+  });
+
+  if (
+    valueReview.total < 55 ||
+    valueReview.display_tier === "reject" ||
+    !valueReview.adversarial_review.survives
+  ) {
+    return null;
+  }
+
   return {
     recommendation_type: type,
     title,
@@ -388,6 +534,12 @@ function createRecommendation({
         priority_score: priority,
         visibility: visibilityForConfidence(score),
         consensus: competitorConsensusSummary(supports),
+        recommendation_value_score: valueReview.total,
+        recommendation_value_max: valueReview.max,
+        recommendation_value_components: valueReview.components,
+        recommendation_value_tier: valueReview.display_tier,
+        adversarial_review: valueReview.adversarial_review,
+        implementability: valueReview.implementability,
       },
       trend: {
         status: "insufficient_history",

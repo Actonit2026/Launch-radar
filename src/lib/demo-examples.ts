@@ -69,6 +69,26 @@ function nextDailyRefreshIso(date = new Date()) {
   return next.toISOString();
 }
 
+function isFreshHighQualityDemo(row: DemoExampleResult) {
+  if (row.status !== "success" || row.confidence === "low") {
+    return false;
+  }
+
+  if (!row.last_verified_at) {
+    return false;
+  }
+
+  const verifiedAt = Date.parse(row.last_verified_at);
+
+  if (!Number.isFinite(verifiedAt)) {
+    return false;
+  }
+
+  const maxAgeMs = 14 * 24 * 60 * 60 * 1000;
+
+  return Date.now() - verifiedAt <= maxAgeMs;
+}
+
 function rotatedPool(week = demoRotationWeek()) {
   const active = demoCompetitorPool.filter((competitor) => competitor.active);
   const offset = active.length ? week % active.length : 0;
@@ -208,16 +228,21 @@ export async function getDemoExamples(): Promise<DemoExamplesCache> {
       .eq("status", "success")
       .order("slot", { ascending: true })
       .limit(3);
-    const rows = currentWeek?.length === 3
-      ? currentWeek
+    const freshCurrentWeek = (currentWeek ?? []).filter(isFreshHighQualityDemo);
+    const rows = freshCurrentWeek.length === 3
+      ? freshCurrentWeek
       : (
-          await supabase
-            .from("demo_example_results")
-            .select("*")
-            .eq("status", "success")
-            .order("last_verified_at", { ascending: false })
-            .limit(3)
-        ).data ?? [];
+          (
+            await supabase
+              .from("demo_example_results")
+              .select("*")
+              .eq("status", "success")
+              .order("last_verified_at", { ascending: false })
+              .limit(12)
+          ).data ?? []
+        )
+          .filter(isFreshHighQualityDemo)
+          .slice(0, 3);
     const examples = rows.map(rowToExample);
     const updatedAt =
       rows

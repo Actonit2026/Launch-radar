@@ -1,6 +1,11 @@
 import type { CompetitorIntelligenceSnapshot, Json } from "@/lib/database.types";
 import type { BusinessProfile } from "@/lib/intelligence/business-profile";
 import type { Confidence } from "@/lib/intelligence/types";
+import type {
+  ScanCompletenessStatus,
+  ScanQualityLabel,
+  ScanQualitySummary,
+} from "@/lib/scan-quality";
 
 export const LIMITED_DATA_MESSAGE =
   "Initial scan completed, but reliable public data was limited.";
@@ -15,6 +20,7 @@ export type IntelligenceSummaryView = {
   warnings: string[];
   overallConfidence: Confidence;
   businessProfile: BusinessProfile | null;
+  scanQuality: ScanQualitySummary | null;
 };
 
 export type IntelligenceFactView = {
@@ -71,6 +77,7 @@ export type IntelligenceDisplayView = {
   createdAt: string;
   source: "openai" | "deterministic";
   overallConfidence: Confidence;
+  scanQuality: ScanQualitySummary | null;
   pagesAnalyzed: number;
   overview: IntelligenceSectionView;
   pricing: IntelligenceSectionView;
@@ -112,6 +119,65 @@ function confidenceOrLow(value: unknown): Confidence {
     : "low";
 }
 
+function scanQualityLabel(value: unknown): ScanQualityLabel {
+  return value === "high" || value === "medium" || value === "limited"
+    ? value
+    : "limited";
+}
+
+function scanCompletenessStatus(value: unknown): ScanCompletenessStatus {
+  return value === "complete" || value === "partial" || value === "limited"
+    ? value
+    : "limited";
+}
+
+function parseScanQuality(value: unknown): ScanQualitySummary | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const score = numberOrDefault(value.score, 0);
+
+  return {
+    score,
+    label: scanQualityLabel(value.label),
+    status: scanCompletenessStatus(value.status),
+    alerts_allowed: value.alerts_allowed === true,
+    confidence_impact:
+      stringOrNull(value.confidence_impact) ??
+      "Scan confidence was not recorded for this snapshot.",
+    pages_attempted: numberOrDefault(value.pages_attempted, 0),
+    pages_analyzed: numberOrDefault(value.pages_analyzed, 0),
+    successful_pages: numberOrDefault(value.successful_pages, 0),
+    failed_pages: numberOrDefault(value.failed_pages, 0),
+    duration_ms: numberOrDefault(value.duration_ms, 0),
+    completed: stringArray(value.completed),
+    skipped: stringArray(value.skipped),
+    missing_categories: stringArray(value.missing_categories),
+    warnings: stringArray(value.warnings),
+    stage_timings: Array.isArray(value.stage_timings)
+      ? value.stage_timings
+          .filter((item): item is Record<string, unknown> => isRecord(item))
+          .map((item) => ({
+            stage:
+              item.stage === "fetch" ||
+              item.stage === "discovery" ||
+              item.stage === "extraction" ||
+              item.stage === "scoring" ||
+              item.stage === "render"
+                ? item.stage
+                : "render",
+            duration_ms: numberOrDefault(item.duration_ms, 0),
+            budget_ms: numberOrDefault(item.budget_ms, 0),
+            status:
+              item.status === "within_budget" || item.status === "over_budget"
+                ? item.status
+                : "within_budget",
+          }))
+      : [],
+  };
+}
+
 function cleanSummaryText(value: string | null) {
   if (!value) {
     return null;
@@ -146,6 +212,7 @@ function parseSummary(value: Json): IntelligenceSummaryView {
     businessProfile: isRecord(summary.business_profile)
       ? (summary.business_profile as BusinessProfile)
       : null,
+    scanQuality: parseScanQuality(summary.scan_quality),
   };
 }
 
@@ -460,6 +527,7 @@ export function buildIntelligenceDisplay(
     createdAt: snapshot.createdAt,
     source: snapshot.source,
     overallConfidence: snapshot.summary.overallConfidence,
+    scanQuality: snapshot.summary.scanQuality,
     pagesAnalyzed: snapshot.analyzedPages.length,
     overview: overviewSection(snapshot),
     pricing,

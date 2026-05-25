@@ -143,6 +143,7 @@ const sourceFiles = [
   "src/lib/intelligence/models.ts",
   "src/lib/intelligence/analyze.ts",
   "src/lib/intelligence/business-profile.ts",
+  "src/lib/scan-quality.ts",
   "src/lib/product-recommendations.ts",
   "src/lib/change-detection.ts",
 ].map((file) => path.join(rootDir, file));
@@ -355,10 +356,16 @@ function recommendationUseful(recommendations) {
     const competitorEvidence = Array.isArray(evidence?.competitor_evidence)
       ? evidence.competitor_evidence
       : [];
+    const trust = evidence?.trust ?? {};
+    const valueScore = Number(trust.recommendation_value_score ?? 0);
+    const adversarialSurvives =
+      trust.adversarial_review?.survives === true;
     const title = recommendation.title.toLowerCase();
 
     return (
       recommendation.confidence >= 60 &&
+      valueScore >= 55 &&
+      adversarialSurvives &&
       competitorEvidence.length > 0 &&
       !["improve cta", "add pricing", "clarify positioning"].includes(title)
     );
@@ -439,7 +446,7 @@ function scoreUxLab({ dashboardClarity, homepageTrust, caseResults }) {
     const result = caseResults[index % caseResults.length];
     const clarity = dashboardClarity >= 95;
     const firstValue = result.success && result.baseline === "useful";
-    const fastEnough = result.duration_ms < 10000;
+    const fastEnough = result.duration_ms < 8000;
     const confidence =
       result.positioning === "useful" &&
       result.cta === "useful" &&
@@ -475,6 +482,57 @@ function scoreUxLab({ dashboardClarity, homepageTrust, caseResults }) {
       }, {}),
     ).map(([reason, count]) => ({ reason, count })),
   };
+}
+
+function percentile(values, target) {
+  if (!values.length) {
+    return 0;
+  }
+
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(
+    sorted.length - 1,
+    Math.ceil((target / 100) * sorted.length) - 1,
+  );
+
+  return sorted[index];
+}
+
+function median(values) {
+  return percentile(values, 50);
+}
+
+function scoreAttentionClarity({ dashboardClarity, homepageTrust, caseResults }) {
+  const firstInsightFast = caseResults.filter(
+    (item) => item.duration_ms <= 45_000 && item.baseline === "useful",
+  ).length;
+  const successfulIntelligence = caseResults.filter(
+    (item) =>
+      item.positioning === "useful" &&
+      item.cta === "useful" &&
+      item.features !== "weak",
+  ).length;
+
+  return boundedScore(
+    average([
+      dashboardClarity,
+      homepageTrust,
+      pct(firstInsightFast, caseResults.length),
+      pct(successfulIntelligence, caseResults.length),
+    ]),
+  );
+}
+
+function decisionFrictionIndex({ dashboardClarity, caseResults }) {
+  const weakSignals = caseResults.filter(
+    (item) =>
+      item.positioning === "weak" ||
+      item.cta === "weak" ||
+      item.baseline === "weak" ||
+      item.duration_ms > 8000,
+  ).length;
+
+  return boundedScore(100 - average([dashboardClarity, 100 - pct(weakSignals, caseResults.length)]));
 }
 
 async function runCounterExamples(analyzePageIntelligence, createDetectedChangePayload) {
@@ -761,12 +819,39 @@ try {
   const dashboardClarity = scoreDashboardClarity(dashboardSource);
   const homepageTrust = scoreHomepageTrust(homepageSource);
   const uxLab = scoreUxLab({ dashboardClarity, homepageTrust, caseResults });
+  const durations = analyzedSites.map((item) => item.duration_ms);
+  const medianDurationMs = median(durations);
+  const p95DurationMs = percentile(durations, 95);
+  const attentionClarity = scoreAttentionClarity({
+    dashboardClarity,
+    homepageTrust,
+    caseResults,
+  });
+  const decisionFriction = decisionFrictionIndex({
+    dashboardClarity,
+    caseResults,
+  });
+  const timeToFirstInsightSeconds = Math.round(
+    median(caseResults.map((item) => item.duration_ms)) / 1000,
+  );
+  const behavioralPass = boundedScore(
+    average([
+      uxLab.score,
+      attentionClarity,
+      pct(
+        caseResults.filter(
+          (item) => item.success || item.failures.length <= 1,
+        ).length,
+        caseResults.length,
+      ),
+    ]),
+  );
   const counterExamples = await runCounterExamples(
     analyzePageIntelligence,
     createDetectedChangePayload,
   );
   const performanceScore = pct(
-    analyzedSites.filter((item) => item.duration_ms < 10000).length,
+    analyzedSites.filter((item) => item.duration_ms < 8000).length,
     analyzedSites.length,
   );
   const scorecard = {
@@ -796,6 +881,8 @@ try {
     dashboard_clarity: dashboardClarity,
     homepage_trust: homepageTrust,
     performance: performanceScore,
+    median_duration_ms: medianDurationMs,
+    p95_duration_ms: p95DurationMs,
     counterexample_score: pct(counterExamples.passed, counterExamples.total),
   };
   const finalScores = {
@@ -826,6 +913,14 @@ try {
       ]),
     ),
     recommendation_quality: scorecard.recommendation_usefulness,
+    recommendation_acceptance: boundedScore(
+      scorecard.recommendation_usefulness * 0.75 +
+        scorecard.baseline_usefulness * 0.25,
+    ),
+    attention_clarity: attentionClarity,
+    decision_friction_index: decisionFriction,
+    time_to_first_insight_seconds: timeToFirstInsightSeconds,
+    behavioral_pass: behavioralPass,
     cost_efficiency: openAiCalls === 0 ? 100 : 0,
     readiness: 0,
   };
@@ -836,15 +931,27 @@ try {
       finalScores.trust,
       finalScores.analyzer,
       finalScores.recommendation_quality,
+      finalScores.recommendation_acceptance,
+      finalScores.attention_clarity,
+      finalScores.behavioral_pass,
       finalScores.cost_efficiency,
     ]),
   );
   const gates = {
     reliability: finalScores.reliability >= 97,
     analyzer: finalScores.analyzer >= 95,
-    ux: finalScores.ux >= 90,
+    ux: finalScores.ux >= 95,
     trust: finalScores.trust >= 90,
-    recommendation: finalScores.recommendation_quality >= 85,
+    recommendation: finalScores.recommendation_quality >= 90,
+    recommendation_acceptance: finalScores.recommendation_acceptance >= 85,
+    attention_clarity: finalScores.attention_clarity >= 90,
+    decision_friction: finalScores.decision_friction_index <= 20,
+    time_to_first_insight: finalScores.time_to_first_insight_seconds <= 45,
+    behavioral_pass: finalScores.behavioral_pass >= 90,
+    performance:
+      scorecard.performance >= 95 &&
+      scorecard.median_duration_ms < 4000 &&
+      scorecard.p95_duration_ms < 8000,
     cost: finalScores.cost_efficiency >= 90,
   };
   const failureCases = caseResults

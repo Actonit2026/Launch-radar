@@ -40,12 +40,16 @@ export type DiscoveredPage = {
   scrape: ScrapedPage;
 };
 
-const sitemapTimeoutMs = 3000;
+const sitemapTimeoutMs = 1800;
+const sitemapDiscoveryBudgetMs = 1200;
 
 const fallbackPaths = [
   "/",
   "/pricing",
   "/plans",
+  "/pricing-and-packaging",
+  "/pricing-plans",
+  "/plans-and-pricing",
   "/packages",
   "/subscription",
   "/billing",
@@ -63,6 +67,7 @@ const fallbackPaths = [
   "/docs",
   "/help",
   "/support",
+  "/faq",
   "/api",
 ];
 
@@ -379,6 +384,23 @@ async function sitemapCandidates(baseUrl: string) {
     }));
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: T) {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((resolve) => {
+        timeout = setTimeout(() => resolve(fallback), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
 function scrapeForCandidate(
   candidate: PageCandidate,
   scrapes: Map<string, ScrapedPage>,
@@ -401,13 +423,11 @@ function selectCandidatesToScrape(candidates: PageCandidate[]) {
     "changelog",
     "docs",
   ];
-  const strategic = strategicTypes
-    .map((pageType) =>
-      ranked.find((candidate) => candidate.pageType === pageType),
-    )
-    .filter((candidate): candidate is ClassifiedCandidate =>
-      Boolean(candidate),
-    );
+  const strategic = strategicTypes.flatMap((pageType) =>
+    ranked
+      .filter((candidate) => candidate.pageType === pageType)
+      .slice(0, pageType === "pricing" ? 3 : 2),
+  );
   const selected = unique([
     ...required.map((candidate) => candidate.url),
     ...strategic.map((candidate) => candidate.url),
@@ -527,7 +547,11 @@ export async function discoverCompetitorPages(
     );
   }
 
-  const sitemapDiscovered = await sitemapDiscoveredPromise;
+  const sitemapDiscovered = await withTimeout(
+    sitemapDiscoveredPromise,
+    sitemapDiscoveryBudgetMs,
+    [],
+  );
   sitemapDiscovered.forEach((candidate) =>
     addCandidate(candidates, candidate, baseUrl),
   );

@@ -17,6 +17,8 @@ type EvidenceItem = {
 type RecommendationTrust = {
   priority_score?: number;
   visibility?: string;
+  recommendation_value_score?: number;
+  recommendation_value_tier?: string;
   consensus?: {
     supporting_competitors?: number;
     required_competitors?: number;
@@ -204,6 +206,11 @@ export function ProductRecommendationsPanel({
                 {typeof evidence.trust?.priority_score === "number" ? (
                   <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink/55">
                     {evidence.trust.priority_score}/100 priority
+                  </span>
+                ) : null}
+                {typeof evidence.trust?.recommendation_value_score === "number" ? (
+                  <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink/55">
+                    {evidence.trust.recommendation_value_score}/70 usefulness
                   </span>
                 ) : null}
                 {evidence.trust?.consensus?.supporting_competitors &&

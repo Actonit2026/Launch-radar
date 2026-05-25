@@ -36,6 +36,13 @@ import {
 } from "@/lib/scan-debug";
 import { cleanupSnapshotRetentionForUser } from "@/lib/retention";
 import {
+  buildIntelligenceScanQuality,
+  buildMonitoringScanQuality,
+  measureStage,
+  type ScanQualitySummary,
+  type ScanStageTiming,
+} from "@/lib/scan-quality";
+import {
   notificationForPage,
   sendChangeNotification,
   type ChangeNotificationContext,
@@ -95,6 +102,17 @@ type ManualScanDebugOutcome = {
   notification_sent?: boolean;
   notification_skipped?: boolean;
   error?: string;
+};
+
+type PendingChangeNotification = {
+  competitorId: string;
+  url: string;
+  change: Pick<
+    DetectedChange,
+    "id" | "diff_summary" | "severity" | "created_at" | "confidence_score"
+  >;
+  notification: NonNullable<ReturnType<typeof notificationForPage>>;
+  outcome: ManualScanDebugOutcome;
 };
 
 function byRequestedUrl(scrapes: ScrapedPage[]) {
@@ -244,7 +262,7 @@ async function saveAnalyzedSnapshot(
   let changeCreated = false;
   let change: Pick<
     DetectedChange,
-    "id" | "diff_summary" | "severity" | "created_at"
+    "id" | "diff_summary" | "severity" | "created_at" | "confidence_score"
   > | null = null;
   let summarySource: "openai" | "heuristic" | null = null;
   const summaryError: string | null = null;
@@ -284,7 +302,7 @@ async function saveAnalyzedSnapshot(
         monitored_page_id: monitoredPage.id,
         ...detectedChangePayload,
       })
-      .select("id, diff_summary, severity, created_at")
+      .select("id, diff_summary, severity, created_at, confidence_score")
       .single();
 
     if (changeError) {
@@ -415,9 +433,12 @@ export async function createInitialMonitoringSetup(
     pagesCreated: number;
     snapshotsCreated: number;
     intelligenceSnapshotCreated: boolean;
+    scanQuality?: ScanQualitySummary;
     crawlWarning?: string;
   }>
 > {
+  const scanStartedAt = Date.now();
+  const stageTimings: ScanStageTiming[] = [];
   let discoveredPages: Awaited<ReturnType<typeof discoverCompetitorPages>> = [];
   let crawlWarning: string | undefined;
 
@@ -427,6 +448,8 @@ export async function createInitialMonitoringSetup(
     status: "running",
   });
 
+  const discoveryStartedAt = Date.now();
+
   try {
     discoveredPages = await discoverCompetitorPages(baseUrl, {
       submittedPageUrl: options?.submittedPageUrl,
@@ -434,6 +457,8 @@ export async function createInitialMonitoringSetup(
   } catch (error) {
     crawlWarning =
       error instanceof Error ? error.message : "Could not crawl competitor.";
+  } finally {
+    stageTimings.push(measureStage("discovery", discoveryStartedAt));
   }
 
   const discoveredByPageType = new Map(
@@ -488,8 +513,14 @@ export async function createInitialMonitoringSetup(
 
   let snapshotsCreated = 0;
   let intelligenceSnapshotCreated = false;
+  const fallbackStartedAt = Date.now();
   const fallbackScrapes =
     discoveredPages.length === 0 ? await scrapePages([baseUrl]) : [];
+
+  if (fallbackScrapes.length) {
+    stageTimings.push(measureStage("fetch", fallbackStartedAt));
+  }
+
   const fallbackByUrl = byRequestedUrl(fallbackScrapes);
 
   for (const monitoredPage of monitoredPages ?? []) {
@@ -514,6 +545,7 @@ export async function createInitialMonitoringSetup(
     }
   }
 
+  const extractionStartedAt = Date.now();
   const intelligencePages = discoveredPages
     .filter((page) => page.scrape.ok && page.scrape.rawText)
     .map((page) =>
@@ -522,17 +554,39 @@ export async function createInitialMonitoringSetup(
         scrape: page.scrape,
       }),
     );
+  stageTimings.push(measureStage("extraction", extractionStartedAt));
+
+  const scoringStartedAt = Date.now();
   const intelligenceSummary = await summarizeIntelligence({
     competitorName: options?.competitorName ?? "Tracked competitor",
     pages: intelligencePages,
     supabase,
     userId: options?.userId,
   });
+  stageTimings.push(measureStage("scoring", scoringStartedAt));
+  const qualityWarnings = [
+    ...(crawlWarning ? [crawlWarning] : []),
+    ...intelligencePages.flatMap((page) => page.warnings),
+    ...intelligenceSummary.warnings,
+    ...intelligenceSummary.unknowns,
+  ];
+  const scanQuality = buildIntelligenceScanQuality({
+    pagesAttempted: monitoredPages?.length ?? discoveredPages.length,
+    pages: intelligencePages,
+    scrapes: [
+      ...discoveredPages.map((page) => page.scrape),
+      ...fallbackScrapes,
+    ],
+    durationMs: Date.now() - scanStartedAt,
+    stageTimings,
+    warnings: qualityWarnings,
+  });
   const intelligenceError = await saveCompetitorIntelligenceSnapshot({
     supabase,
     competitorId,
     pages: intelligencePages,
     summary: intelligenceSummary,
+    scanQuality,
   });
 
   intelligenceSnapshotCreated = !intelligenceError;
@@ -572,6 +626,7 @@ export async function createInitialMonitoringSetup(
       monitoredPages: monitoredPages ?? [],
       intelligencePages,
       summary: intelligenceSummary,
+      scanQuality,
       result: {
         pagesCreated: monitoredPages?.length ?? 0,
         snapshotsCreated,
@@ -608,6 +663,8 @@ export async function createInitialMonitoringSetup(
         competitor_id: competitorId,
         pages_analyzed: intelligencePages.length,
         snapshots_created: snapshotsCreated,
+        scan_quality_score: scanQuality.score,
+        scan_quality_status: scanQuality.status,
       },
     });
   }
@@ -617,6 +674,7 @@ export async function createInitialMonitoringSetup(
       pagesCreated: monitoredPages?.length ?? 0,
       snapshotsCreated,
       intelligenceSnapshotCreated,
+      scanQuality,
       crawlWarning,
     },
   };
@@ -642,8 +700,12 @@ export async function rerunCompetitorIntelligence(
     baselineSnapshotsCreated: number;
     failed: number;
     warnings: string[];
+    scanQuality?: ScanQualitySummary;
   }>
 > {
+  const scanStartedAt = Date.now();
+  const stageTimings: ScanStageTiming[] = [];
+
   await updateCompetitorScanStatus({
     supabase,
     competitorId,
@@ -720,12 +782,15 @@ export async function rerunCompetitorIntelligence(
   }
 
   const baselinePageIdSet = new Set(baselinePageIds);
+  const fetchStartedAt = Date.now();
   const scrapes = await scrapePages(pages.map((page) => page.url));
+  stageTimings.push(measureStage("fetch", fetchStartedAt));
   const scrapeByUrl = byRequestedUrl(scrapes);
   const intelligencePages: PageIntelligence[] = [];
   let baselineSnapshotsCreated = 0;
   let failed = 0;
   const warnings: string[] = [];
+  const extractionStartedAt = Date.now();
 
   for (const page of pages) {
     const scrape = scrapeByUrl.get(page.url);
@@ -755,6 +820,7 @@ export async function rerunCompetitorIntelligence(
       }
     }
   }
+  stageTimings.push(measureStage("extraction", extractionStartedAt));
 
   if (!intelligencePages.length) {
     const error = warnings[0] ?? "No useful public pages found.";
@@ -789,17 +855,33 @@ export async function rerunCompetitorIntelligence(
     return { data: null, error };
   }
 
+  const scoringStartedAt = Date.now();
   const intelligenceSummary = await summarizeIntelligence({
     competitorName,
     pages: intelligencePages,
     supabase,
     userId,
   });
+  stageTimings.push(measureStage("scoring", scoringStartedAt));
+  const scanQuality = buildIntelligenceScanQuality({
+    pagesAttempted: pages.length,
+    pages: intelligencePages,
+    scrapes,
+    durationMs: Date.now() - scanStartedAt,
+    stageTimings,
+    warnings: [
+      ...warnings,
+      ...intelligencePages.flatMap((page) => page.warnings),
+      ...intelligenceSummary.warnings,
+      ...intelligenceSummary.unknowns,
+    ],
+  });
   const intelligenceError = await saveCompetitorIntelligenceSnapshot({
     supabase,
     competitorId,
     pages: intelligencePages,
     summary: intelligenceSummary,
+    scanQuality,
   });
   const intelligenceSnapshotCreated = !intelligenceError;
 
@@ -823,6 +905,7 @@ export async function rerunCompetitorIntelligence(
         scrapes,
         intelligencePages,
         summary: intelligenceSummary,
+        scanQuality,
         result: {
           pagesAnalyzed: intelligencePages.length,
           intelligenceSnapshotCreated,
@@ -852,12 +935,13 @@ export async function rerunCompetitorIntelligence(
     competitorId,
     runType: "manual_analysis",
     status: failed || warnings.length ? "partial" : "success",
-    payload: buildManualAnalysisDebugPayload({
-      monitoredPages: pages,
-      scrapes,
-      intelligencePages,
-      summary: intelligenceSummary,
-      result: {
+      payload: buildManualAnalysisDebugPayload({
+        monitoredPages: pages,
+        scrapes,
+        intelligencePages,
+        summary: intelligenceSummary,
+        scanQuality,
+        result: {
         pagesAnalyzed: intelligencePages.length,
         intelligenceSnapshotCreated,
         baselineSnapshotsCreated,
@@ -888,6 +972,8 @@ export async function rerunCompetitorIntelligence(
         competitor_id: competitorId,
         pages_analyzed: intelligencePages.length,
         baseline_snapshots_created: baselineSnapshotsCreated,
+        scan_quality_score: scanQuality.score,
+        scan_quality_status: scanQuality.status,
       },
     });
   }
@@ -899,6 +985,7 @@ export async function rerunCompetitorIntelligence(
       baselineSnapshotsCreated,
       failed,
       warnings,
+      scanQuality,
     },
   };
 }
@@ -912,6 +999,8 @@ export async function scanMonitoredPagesForUser(
     ignoreScanInterval?: boolean;
   } = {},
 ): Promise<ScannerResult<ScanResult>> {
+  const scanStartedAt = Date.now();
+  const stageTimings: ScanStageTiming[] = [];
   const { data: competitors, error: competitorsError } = await supabase
     .from("competitors")
     .select("id, name, base_url")
@@ -986,9 +1075,12 @@ export async function scanMonitoredPagesForUser(
     recipientEmail: profile?.email ?? null,
     competitorById,
   };
+  const fetchStartedAt = Date.now();
   const scrapes = await scrapePages(pages.map((page) => page.url));
+  stageTimings.push(measureStage("fetch", fetchStartedAt));
   const scrapeByUrl = byRequestedUrl(scrapes);
   const scanOutcomesByCompetitor = new Map<string, ManualScanDebugOutcome[]>();
+  const pendingNotifications: PendingChangeNotification[] = [];
   const result: ScanResult = {
     checked: 0,
     snapshotsCreated: 0,
@@ -1013,6 +1105,8 @@ export async function scanMonitoredPagesForUser(
     outcomes.push(outcome);
     scanOutcomesByCompetitor.set(competitorId, outcomes);
   }
+
+  const extractionStartedAt = Date.now();
 
   for (const monitoredPage of pages) {
     const scrape = scrapeByUrl.get(monitoredPage.url);
@@ -1066,23 +1160,13 @@ export async function scanMonitoredPagesForUser(
               result.notificationsSkipped += 1;
               outcome.notification_skipped = true;
             } else {
-              const notificationResult =
-                await sendChangeNotification(notification);
-
-              if (notificationResult.sent) {
-                result.notificationsSent += 1;
-                outcome.notification_sent = true;
-              } else if (notificationResult.skipped) {
-                result.notificationsSkipped += 1;
-                outcome.notification_skipped = true;
-              } else {
-                outcome.error =
-                  notificationResult.error ?? "Could not send email.";
-                result.notificationFailures.push({
-                  url: monitoredPage.url,
-                  error: notificationResult.error ?? "Could not send email.",
-                });
-              }
+              pendingNotifications.push({
+                competitorId: monitoredPage.competitor_id,
+                url: monitoredPage.url,
+                change: saved.change,
+                notification,
+                outcome,
+              });
             }
           }
         } catch (saveError) {
@@ -1136,23 +1220,13 @@ export async function scanMonitoredPagesForUser(
           result.notificationsSkipped += 1;
           outcome.notification_skipped = true;
         } else {
-          const notificationResult =
-            await sendChangeNotification(notification);
-
-          if (notificationResult.sent) {
-            result.notificationsSent += 1;
-            outcome.notification_sent = true;
-          } else if (notificationResult.skipped) {
-            result.notificationsSkipped += 1;
-            outcome.notification_skipped = true;
-          } else {
-            outcome.error =
-              notificationResult.error ?? "Could not send email.";
-            result.notificationFailures.push({
-              url: monitoredPage.url,
-              error: notificationResult.error ?? "Could not send email.",
-            });
-          }
+          pendingNotifications.push({
+            competitorId: monitoredPage.competitor_id,
+            url: monitoredPage.url,
+            change: saved.change,
+            notification,
+            outcome,
+          });
         }
       }
 
@@ -1175,6 +1249,8 @@ export async function scanMonitoredPagesForUser(
     }
   }
 
+  stageTimings.push(measureStage("extraction", extractionStartedAt));
+
   for (const competitorId of competitorIds) {
     const competitor = competitorById.get(competitorId);
     const competitorPages = pages.filter(
@@ -1189,6 +1265,54 @@ export async function scanMonitoredPagesForUser(
       .map((outcome) => outcome.error)
       .filter((value): value is string => Boolean(value));
     const successCount = outcomes.filter((outcome) => outcome.ok).length;
+    const failedCount = Math.max(0, competitorPages.length - successCount);
+    const scanQuality = buildMonitoringScanQuality({
+      pagesAttempted: competitorPages.length,
+      successfulPages: successCount,
+      failedPages: failedCount,
+      durationMs: Date.now() - scanStartedAt,
+      stageTimings,
+      warnings: errors,
+    });
+    const competitorPendingNotifications = pendingNotifications.filter(
+      (pending) => pending.competitorId === competitorId,
+    );
+
+    for (const pending of competitorPendingNotifications) {
+      const confidence = pending.change.confidence_score ?? 0;
+
+      if (!scanQuality.alerts_allowed || confidence < 0.72) {
+        result.notificationsSkipped += 1;
+        pending.outcome.notification_skipped = true;
+        pending.outcome.ignored_reasons = [
+          ...(pending.outcome.ignored_reasons ?? []),
+          !scanQuality.alerts_allowed
+            ? `Alert suppressed because scan quality was ${scanQuality.score}/100 (${scanQuality.status}).`
+            : `Alert suppressed because change confidence was ${confidence}.`,
+        ];
+        continue;
+      }
+
+      const notificationResult = await sendChangeNotification(
+        pending.notification,
+      );
+
+      if (notificationResult.sent) {
+        result.notificationsSent += 1;
+        pending.outcome.notification_sent = true;
+      } else if (notificationResult.skipped) {
+        result.notificationsSkipped += 1;
+        pending.outcome.notification_skipped = true;
+      } else {
+        pending.outcome.error =
+          notificationResult.error ?? "Could not send email.";
+        result.notificationFailures.push({
+          url: pending.url,
+          error: notificationResult.error ?? "Could not send email.",
+        });
+      }
+    }
+
     const status: "success" | "partial" | "failed" =
       errors.length && successCount
         ? "partial"
@@ -1206,8 +1330,9 @@ export async function scanMonitoredPagesForUser(
         pages: competitorPages,
         scrapes: competitorScrapes,
         outcomes,
+        scanQuality,
       }),
-      warnings: errors,
+      warnings: [...errors, ...scanQuality.warnings],
       errors,
     });
   }
@@ -1231,6 +1356,7 @@ export async function scanMonitoredPagesForUser(
         failed: result.failed,
         deferred: result.deferred,
         changes_created: result.changesCreated,
+        suppressed_notifications: result.notificationsSkipped,
       },
     });
   }

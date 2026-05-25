@@ -4,6 +4,7 @@ import type {
   IntelligenceFactView,
   IntelligenceSectionView,
 } from "@/lib/intelligence/display";
+import type { ScanQualitySummary } from "@/lib/scan-quality";
 
 type IntelligenceSnapshotPanelProps = {
   display: IntelligenceDisplayView;
@@ -213,6 +214,68 @@ function Watchlist({ display }: { display: IntelligenceDisplayView }) {
   );
 }
 
+function qualityClassName(quality: ScanQualitySummary) {
+  if (quality.label === "high") {
+    return "bg-moss/10 text-moss";
+  }
+
+  if (quality.label === "medium") {
+    return "bg-amber-100 text-amber-700";
+  }
+
+  return "bg-ink/5 text-ink/55";
+}
+
+function ScanQualityBadge({ quality }: { quality: ScanQualitySummary | null }) {
+  if (!quality) {
+    return null;
+  }
+
+  return (
+    <span
+      className={`rounded-full px-3 py-1 text-xs font-semibold ${qualityClassName(
+        quality,
+      )}`}
+    >
+      {quality.label === "high"
+        ? "High quality"
+        : quality.label === "medium"
+          ? "Medium quality"
+          : "Limited scan"}{" "}
+      {quality.score}/100
+    </span>
+  );
+}
+
+function ScanQualityDetails({
+  quality,
+  compact,
+}: {
+  quality: ScanQualitySummary | null;
+  compact: boolean;
+}) {
+  if (!quality || compact || quality.label === "high") {
+    return null;
+  }
+
+  return (
+    <div className="mt-5 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
+      <p className="font-semibold text-ink">
+        {quality.status === "limited" ? "Limited scan" : "Partial scan"}
+      </p>
+      <p className="mt-1">{quality.confidence_impact}</p>
+      {quality.completed.length ? (
+        <p className="mt-2">
+          Completed: {quality.completed.slice(0, 5).join(", ")}.
+        </p>
+      ) : null}
+      {quality.skipped.length ? (
+        <p className="mt-1">Skipped: {quality.skipped.slice(0, 5).join(", ")}.</p>
+      ) : null}
+    </div>
+  );
+}
+
 export function IntelligenceSnapshotPanel({
   display,
   compact = false,
@@ -242,6 +305,7 @@ export function IntelligenceSnapshotPanel({
         <span className="rounded-full bg-paper px-3 py-1 text-xs font-semibold text-ink/60">
           {display.pagesAnalyzed} pages analyzed
         </span>
+        <ScanQualityBadge quality={display.scanQuality} />
       </div>
 
       <BusinessProfileOverview display={display} />
@@ -251,6 +315,8 @@ export function IntelligenceSnapshotPanel({
         {display.source === "openai" ? "AI summary" : "deterministic summary"} -{" "}
         {display.overallConfidence} confidence
       </p>
+
+      <ScanQualityDetails quality={display.scanQuality} compact={compact} />
 
       <div
         className={

@@ -3,6 +3,7 @@ import type { Database, Json } from "@/lib/database.types";
 import type { IntelligenceSummaryResult } from "@/lib/ai/intelligence-summary";
 import { buildBusinessProfile } from "@/lib/intelligence/business-profile";
 import type { PageIntelligence } from "@/lib/intelligence/types";
+import type { ScanQualitySummary } from "@/lib/scan-quality";
 
 type Supabase = SupabaseClient<Database>;
 type ScanStatus = "pending" | "running" | "ready" | "failed";
@@ -47,11 +48,13 @@ export async function saveCompetitorIntelligenceSnapshot({
   competitorId,
   pages,
   summary,
+  scanQuality,
 }: {
   supabase: Supabase;
   competitorId: string;
   pages: PageIntelligence[];
   summary: IntelligenceSummaryResult;
+  scanQuality?: ScanQualitySummary;
 }) {
   const facts = pages.flatMap((page) => page.facts);
   const businessProfile = buildBusinessProfile({
@@ -83,6 +86,7 @@ export async function saveCompetitorIntelligenceSnapshot({
         summary: toJson({
           ...summary,
           business_profile: businessProfile,
+          scan_quality: scanQuality ?? null,
         }),
         facts: toJson(facts),
         analyzed_pages: toJson(analyzedPages),
