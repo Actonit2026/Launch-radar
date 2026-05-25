@@ -100,6 +100,10 @@ export type IntelligenceDisplayView = {
   pricing: IntelligenceSectionView;
   pricingState: PricingExperienceState;
   pricingOptions: PricingOptionView[];
+  pricingModelType: string | null;
+  pricingCompleteness: number | null;
+  billingModes: string[];
+  pricingMissingData: string[];
   positioning: IntelligenceSectionView;
   cta: IntelligenceSectionView;
   changelog: IntelligenceSectionView;
@@ -433,7 +437,39 @@ function priceOptionText(fact: IntelligenceFactView) {
   return suffix ? `${fact.value} (${suffix})` : fact.value;
 }
 
+function planOptionLabel(fact: IntelligenceFactView) {
+  return fact.value.split(":")[0]?.trim() || "Pricing plan";
+}
+
+function planOptionText(fact: IntelligenceFactView) {
+  return fact.value.includes(":")
+    ? fact.value.slice(fact.value.indexOf(":") + 1).trim()
+    : fact.value;
+}
+
 function pricingOptions(snapshot: IntelligenceSnapshotView): PricingOptionView[] {
+  const planOptions = factsByField(snapshot, "pricing_plan").map(
+    (fact): PricingOptionView => {
+      const isContact = /custom|contact sales|enterprise/i.test(fact.value);
+
+      return {
+        state: isContact ? "contact_sales" : "public_pricing",
+        label: planOptionLabel(fact),
+        text: planOptionText(fact),
+        confidence: fact.confidence,
+        fact,
+      };
+    },
+  );
+  const usageOptions = factsByField(snapshot, "usage_tier").map(
+    (fact): PricingOptionView => ({
+      state: fact.confidence === "low" ? "pricing_unclear" : "public_pricing",
+      label: "Usage tier",
+      text: fact.value,
+      confidence: fact.confidence,
+      fact,
+    }),
+  );
   const priceOptions = factsByField(snapshot, "visible_price")
     .sort((a, b) => normalizedAmount(a) - normalizedAmount(b) || byConfidence(a, b))
     .map((fact): PricingOptionView => ({
@@ -462,6 +498,8 @@ function pricingOptions(snapshot: IntelligenceSnapshotView): PricingOptionView[]
     }),
   );
   const options = uniquePricingOptions([
+    ...planOptions,
+    ...usageOptions,
     ...freeOptions,
     ...priceOptions,
     ...contactOptions,
@@ -515,6 +553,28 @@ function pricingStateFromOptions(
 }
 
 function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSectionView {
+  const plans = factsByField(snapshot, "pricing_plan");
+  const tiers = factsByField(snapshot, "usage_tier");
+  const modelType = bestFieldFact(snapshot, ["pricing_model_type"], true);
+  const completeness = bestFieldFact(snapshot, ["pricing_completeness"], true);
+
+  if (plans.length || tiers.length) {
+    const pieces = [
+      plans.length ? `${plans.length} plan${plans.length === 1 ? "" : "s"}` : null,
+      tiers.length ? `${tiers.length} usage tier${tiers.length === 1 ? "" : "s"}` : null,
+      modelType ? modelType.value.replace(/_/g, " ") : null,
+      completeness ? `${completeness.value}/100 complete` : null,
+    ].filter(Boolean);
+
+    return {
+      status: "found",
+      text: pieces.length
+        ? `Detected ${pieces.join(", ")}.`
+        : "Structured public pricing detected.",
+      fact: plans[0] ?? tiers[0],
+    };
+  }
+
   const prices = factsByField(snapshot, "visible_price").sort(
     (a, b) => normalizedAmount(a) - normalizedAmount(b) || byConfidence(a, b),
   );
@@ -564,6 +624,37 @@ function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSection
     status: "unavailable",
     text: "No public pricing detected.",
   };
+}
+
+function pricingModelType(snapshot: IntelligenceSnapshotView) {
+  return bestFieldFact(snapshot, ["pricing_model_type"], true)?.value ?? null;
+}
+
+function pricingCompleteness(snapshot: IntelligenceSnapshotView) {
+  const fact = bestFieldFact(snapshot, ["pricing_completeness"], true);
+  const value = fact ? Number(fact.value) : Number.NaN;
+
+  return Number.isFinite(value) ? value : null;
+}
+
+function billingModes(snapshot: IntelligenceSnapshotView) {
+  return uniquePricingOptions(
+    factsByField(snapshot, "billing_mode").map((fact) => ({
+      state: "public_pricing" as const,
+      label: fact.value,
+      text: fact.value,
+      confidence: fact.confidence,
+      fact,
+    })),
+  ).map((option) => option.label);
+}
+
+function pricingMissingData(snapshot: IntelligenceSnapshotView) {
+  return Array.from(
+    new Set(
+      factsByField(snapshot, "pricing_missing_data").map((fact) => fact.value),
+    ),
+  );
 }
 
 function positioningSection(
@@ -715,6 +806,10 @@ export function buildIntelligenceDisplay(
     pricing,
     pricingState,
     pricingOptions: allPricingOptions,
+    pricingModelType: pricingModelType(snapshot),
+    pricingCompleteness: pricingCompleteness(snapshot),
+    billingModes: billingModes(snapshot),
+    pricingMissingData: pricingMissingData(snapshot),
     positioning,
     cta,
     changelog,

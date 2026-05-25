@@ -512,7 +512,10 @@ function hashableFacts(facts: SnapshotFacts) {
   const modelFields = new Set([
     "pricing_visibility",
     "pricing_model",
+    "pricing_model_type",
     "pricing_plan",
+    "usage_tier",
+    "billing_mode",
     "cta_funnel_intent",
     "market_category",
     "target_customer_model",
@@ -1263,6 +1266,17 @@ function compareBusinessModels(previous: SnapshotFacts, next: SnapshotFacts) {
       whyItMatters:
         "Pricing model changes can affect how buyers evaluate, compare, and budget.",
     }),
+    ...compareSingleModelFact({
+      previous,
+      next,
+      field: "pricing_model_type",
+      category: "pricing",
+      changeType: "pricing_model_type_changed",
+      label: "Pricing structure",
+      severity: "medium",
+      whyItMatters:
+        "Pricing structure changes can signal shifts in packaging, usage-based pricing, or sales motion.",
+    }),
     ...compareModelSet({
       previous,
       next,
@@ -1274,6 +1288,18 @@ function compareBusinessModels(previous: SnapshotFacts, next: SnapshotFacts) {
       severity: "medium",
       whyItMatters:
         "Plan-level changes can reveal packaging experiments or target segment shifts.",
+    }),
+    ...compareModelSet({
+      previous,
+      next,
+      field: "usage_tier",
+      category: "pricing",
+      addedType: "usage_tier_added",
+      removedType: "usage_tier_removed",
+      label: "usage tier",
+      severity: "medium",
+      whyItMatters:
+        "Usage-tier changes can reveal price packaging changes that a single lowest-price check would miss.",
     }),
     ...compareSingleModelFact({
       previous,

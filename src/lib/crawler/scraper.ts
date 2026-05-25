@@ -20,6 +20,7 @@ export type ScrapedPage = {
   status: number | null;
   fetchStatus?: "success" | "failed";
   ok: boolean;
+  html?: string;
   rawText: string;
   hash: string;
   links: PageLink[];
@@ -49,6 +50,7 @@ const fetchTimeoutMs =
     : 6500;
 const staticMeaningfulTextThreshold = 140;
 const domainDelayMs = 500;
+const dynamicCurrencyTimeoutMs = 1200;
 const lastFetchByDomain = new Map<string, number>();
 
 export function hashText(value: string) {
@@ -80,6 +82,7 @@ function failedScrape(url: string, error: unknown, status: number | null = null)
     status,
     fetchStatus: "failed",
     ok: false,
+    html: "",
     rawText: "",
     hash: hashText(""),
     links: [],
@@ -157,6 +160,62 @@ function browserFallbackEnabled() {
   );
 }
 
+async function enrichDynamicCurrencyHtml(html: string, finalUrl: string) {
+  const currencyEndpoint = html.match(
+    /fetch\(['"]([^'"]*currency[^'"]*)['"]\)[\s\S]{0,300}?currency\s*=\s*data\.currency/i,
+  )?.[1];
+
+  if (!currencyEndpoint) {
+    return html;
+  }
+
+  let currencyUrl: URL;
+  let pageUrl: URL;
+
+  try {
+    pageUrl = new URL(finalUrl);
+    currencyUrl = new URL(currencyEndpoint, finalUrl);
+  } catch {
+    return html;
+  }
+
+  if (currencyUrl.origin !== pageUrl.origin) {
+    return html;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), dynamicCurrencyTimeoutMs);
+
+  try {
+    const response = await fetch(currencyUrl, {
+      redirect: "follow",
+      signal: controller.signal,
+      headers: {
+        accept: "application/json,text/plain,*/*",
+        "user-agent": crawlerUserAgent(),
+      },
+    });
+
+    if (!response.ok) {
+      return html;
+    }
+
+    const data = await response.json().catch(() => null);
+    const currency =
+      data && typeof data.currency === "string" ? data.currency.trim() : "";
+
+    if (!["$", "\u20AC", "\u00A3"].includes(currency)) {
+      return html;
+    }
+
+    return html.replace(/currency:\s*['"][^'"]+['"]/, `currency: '${currency}'`);
+  } catch {
+    return html;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function domainFor(url: string) {
   try {
     return new URL(url).hostname.toLowerCase();
@@ -202,8 +261,8 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
         "user-agent": crawlerUserAgent(),
       },
     });
-    const html = await response.text();
     const finalUrl = response.url || url;
+    const html = await enrichDynamicCurrencyHtml(await response.text(), finalUrl);
     const rawText = extractMeaningfulText(html);
     const status = response.status;
     const fetchStatus = response.ok ? "success" : "failed";
@@ -225,6 +284,7 @@ async function scrapePageWithFetch(url: string): Promise<ScrapedPage> {
       status,
       fetchStatus,
       ok: response.ok && rawText.length > 0 && !javascriptHeavy,
+      html,
       rawText,
       hash: hashText(rawText),
       links: extractPageLinks(html, finalUrl),
@@ -292,8 +352,8 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
           })
           .catch(() => undefined);
 
-        const html = await page.content();
         const finalUrl = page.url();
+        const html = await enrichDynamicCurrencyHtml(await page.content(), finalUrl);
         const rawText = extractMeaningfulText(html);
         const status = response?.status() ?? null;
         const fetchStatus = status === null || status < 400 ? "success" : "failed";
@@ -313,6 +373,7 @@ async function scrapePagesWithBrowser(urls: string[]): Promise<ScrapedPage[]> {
           status,
           fetchStatus,
           ok: (status === null || status < 400) && rawText.length > 0,
+          html,
           rawText,
           hash: hashText(rawText),
           links: extractPageLinks(html, finalUrl),

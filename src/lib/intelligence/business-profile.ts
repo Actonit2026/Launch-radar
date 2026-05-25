@@ -20,10 +20,22 @@ export type BusinessProfile = {
   monetization: {
     pricing_visibility: BusinessModels["pricing"]["pricing_visibility"];
     pricing_model: BusinessModels["pricing"]["pricing_model"];
+    pricing_model_type: BusinessModels["pricing"]["pricing_model_type"];
+    billing_modes: BusinessModels["pricing"]["billing_modes"];
     plans: Array<Pick<
       PricingPlanModel,
-      "name" | "price" | "currency" | "billing_period" | "billing_type"
+      | "name"
+      | "price"
+      | "currency"
+      | "billing_period"
+      | "billing_mode"
+      | "billing_type"
+      | "limits"
+      | "is_custom_price"
     >>;
+    usage_tiers: BusinessModels["pricing"]["usage_tiers"];
+    completeness_score: number;
+    missing_possible_data: string[];
     billing_patterns: string[];
     contact_sales_detected: boolean;
     confidence: Confidence;
@@ -242,17 +254,22 @@ export function buildBusinessProfile({
   const monetization = {
     pricing_visibility: pricingPage?.models.pricing.pricing_visibility ?? "unknown",
     pricing_model: pricingPage?.models.pricing.pricing_model ?? "unknown",
+    pricing_model_type:
+      pricingPage?.models.pricing.pricing_model_type ?? "unknown",
+    billing_modes: unique(
+      pages.flatMap((page) => page.models.pricing.billing_modes),
+    ) as BusinessModels["pricing"]["billing_modes"],
     plans: unique(
       pages.flatMap((page) =>
         page.models.pricing.plans.map(
           (plan) =>
-            `${plan.name}|${plan.price ?? ""}|${plan.currency ?? ""}|${plan.billing_period}|${plan.billing_type}`,
+            `${plan.name}|${plan.price ?? ""}|${plan.currency ?? ""}|${plan.billing_period}|${plan.billing_mode}|${plan.billing_type}|${plan.limits.join(", ")}|${plan.is_custom_price ? "1" : "0"}`,
         ),
       ),
     )
       .slice(0, 12)
       .map((value) => {
-        const [planName, price, currency, billingPeriod, billingType] =
+        const [planName, price, currency, billingPeriod, billingMode, billingType, limits, isCustom] =
           value.split("|");
 
         return {
@@ -260,18 +277,41 @@ export function buildBusinessProfile({
           price: price ? Number(price) : null,
           currency: (currency || null) as PricingPlanModel["currency"],
           billing_period: billingPeriod as PricingPlanModel["billing_period"],
+          billing_mode: billingMode as PricingPlanModel["billing_mode"],
           billing_type: billingType as PricingPlanModel["billing_type"],
+          limits: limits ? limits.split(", ").filter(Boolean) : [],
+          is_custom_price: isCustom === "1",
         };
       }),
+    usage_tiers: pages
+      .flatMap((page) => page.models.pricing.usage_tiers)
+      .filter((tier, index, tiers) =>
+        tiers.findIndex(
+          (item) =>
+            item.label === tier.label &&
+            item.price === tier.price &&
+            item.currency === tier.currency,
+        ) === index,
+      )
+      .slice(0, 20),
+    completeness_score: Math.max(
+      0,
+      ...pages.map((page) => page.models.pricing.completeness_score),
+    ),
+    missing_possible_data: unique(
+      pages.flatMap((page) => page.models.pricing.missing_possible_data),
+    ),
     billing_patterns: unique(
       pages.flatMap((page) =>
-        page.models.pricing.plans.map((plan) => plan.billing_type),
+        page.models.pricing.plans.flatMap((plan) => [
+          plan.billing_type,
+          plan.billing_mode,
+        ]),
       ),
     ),
     contact_sales_detected: pages.some((page) =>
-      page.models.pricing.plans.some(
-        (plan) => plan.billing_type === "contact_sales",
-      ),
+      page.models.pricing.plans.some((plan) => plan.is_custom_price) ||
+      page.models.pricing.enterprise_options.length > 0,
     ),
     confidence: pricingPage?.models.pricing.confidence ?? "low",
     evidence: uniqueEvidence(

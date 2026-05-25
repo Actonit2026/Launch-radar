@@ -143,6 +143,7 @@ const sourceFiles = [
   "src/lib/intelligence/types.ts",
   "src/lib/intelligence/text.ts",
   "src/lib/intelligence/pricing.ts",
+  "src/lib/intelligence/pricing-structure.ts",
   "src/lib/intelligence/positioning.ts",
   "src/lib/intelligence/ctas.ts",
   "src/lib/intelligence/features.ts",

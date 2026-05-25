@@ -20,6 +20,7 @@ import type {
   TrustModel,
 } from "@/lib/intelligence/types";
 import type { ScrapedPage } from "@/lib/crawler/scraper";
+import { parsePricingStructure } from "@/lib/intelligence/pricing-structure";
 import {
   analysisBlocks,
   blockText,
@@ -76,6 +77,18 @@ function strongestConfidence(evidence: ModelEvidence[]): Confidence {
   }
 
   if (evidence.some((item) => item.confidence === "medium")) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function strongestConfidenceValue(confidences: Confidence[]): Confidence {
+  if (confidences.includes("high")) {
+    return "high";
+  }
+
+  if (confidences.includes("medium")) {
     return "medium";
   }
 
@@ -154,12 +167,119 @@ function pricingPlanFromPrice({
     price: normalized?.amount ?? null,
     currency: normalized?.currency ?? null,
     billing_period: normalized?.period ?? "unknown",
+    billing_mode:
+      normalized?.period === "month"
+        ? "monthly"
+        : normalized?.period === "year"
+          ? "yearly"
+          : normalized?.period === "week"
+            ? "weekly"
+            : billingType === "usage_based"
+              ? "usage"
+              : "unknown",
     billing_type: billingType,
     limits: findLimits(fact.evidence_text),
+    included_features: [],
     cta: ctaForEvidence(ctas, fact.evidence_text),
+    is_enterprise: /enterprise|custom/i.test(name),
+    is_custom_price: false,
     evidence,
     confidence: fact.confidence,
     source: fact.source_url,
+  };
+}
+
+function mergePricingModels(
+  structured: PricingModel,
+  fallback: PricingModel,
+): PricingModel {
+  const plans = uniqueBy(
+    [...structured.plans, ...fallback.plans],
+    (plan) =>
+      `${sentenceCaseKey(plan.name)}:${plan.price ?? "custom"}:${plan.currency ?? ""}:${plan.billing_period}:${plan.limits.join("|")}`,
+  );
+  const enterpriseOptions = uniqueBy(
+    [
+      ...structured.enterprise_options,
+      ...fallback.enterprise_options,
+      ...plans
+        .filter((plan) => plan.is_enterprise || plan.is_custom_price)
+        .map((plan) => ({
+          name: plan.name || "Enterprise",
+          cta: plan.cta,
+          is_custom_price: true as const,
+          evidence: plan.evidence,
+          confidence: plan.confidence,
+          source: plan.source,
+        })),
+    ],
+    (option) => sentenceCaseKey(`${option.name}:${option.cta ?? ""}:${option.source}`),
+  );
+  const evidence = uniqueBy(
+    [...structured.evidence, ...fallback.evidence],
+    (item) => `${item.source_url}:${sentenceCaseKey(item.evidence_text)}`,
+  );
+  const billingModes = uniqueBy(
+    [
+      ...structured.billing_modes,
+      ...fallback.billing_modes,
+      ...plans
+        .map((plan) => plan.billing_mode)
+        .filter((mode): mode is PricingModel["billing_modes"][number] =>
+          mode !== "unknown",
+        ),
+      ...(structured.usage_tiers.length ? ["usage" as const] : []),
+    ],
+    (mode) => mode,
+  );
+  const publicPricing =
+    plans.some((plan) => plan.price !== null || plan.price === 0) ||
+    structured.usage_tiers.some((tier) => tier.price !== null);
+  const contactSales = enterpriseOptions.length > 0;
+  const visibility: PricingModel["pricing_visibility"] =
+    publicPricing && contactSales
+      ? "partially_public"
+      : publicPricing
+        ? "public"
+        : contactSales
+          ? "contact_sales"
+          : structured.pricing_visibility !== "unknown"
+            ? structured.pricing_visibility
+            : fallback.pricing_visibility;
+  const pricingModelType =
+    structured.pricing_model_type !== "unknown"
+      ? structured.pricing_model_type
+      : fallback.pricing_model_type;
+  const pricingModel =
+    structured.pricing_model !== "unknown"
+      ? structured.pricing_model
+      : fallback.pricing_model;
+
+  return {
+    pricing_visibility: visibility,
+    pricing_model: pricingModel,
+    pricing_model_type: pricingModelType,
+    billing_modes: billingModes,
+    plans,
+    usage_tiers: structured.usage_tiers,
+    enterprise_options: enterpriseOptions,
+    evidence,
+    confidence: strongestConfidenceValue([
+      structured.confidence,
+      fallback.confidence,
+      strongestConfidence(evidence),
+    ]),
+    completeness_score: Math.max(
+      structured.completeness_score,
+      fallback.completeness_score,
+    ),
+    missing_possible_data: uniqueBy(
+      [
+        ...structured.missing_possible_data,
+        ...fallback.missing_possible_data,
+      ],
+      sentenceCaseKey,
+    ),
   };
 }
 
@@ -174,6 +294,7 @@ export function extractPricingModel({
   scrape: ScrapedPage;
   pageType: PageType;
 }): PricingModel {
+  const structured = parsePricingStructure({ scrape, pageType });
   const sourceUrl = scrape.finalUrl;
   const plans = pricing.paidPlans.map((fact, index) =>
     pricingPlanFromPrice({ fact, index, ctas }),
@@ -186,9 +307,13 @@ export function extractPricingModel({
       price: 0,
       currency: null,
       billing_period: "unknown",
+      billing_mode: "unknown",
       billing_type: "fixed",
       limits: findLimits(pricing.freePlan.evidence_text),
+      included_features: [],
       cta: ctaForEvidence(ctas, pricing.freePlan.evidence_text),
+      is_enterprise: false,
+      is_custom_price: false,
       evidence: evidenceFromFact(pricing.freePlan, "pricing"),
       confidence: pricing.freePlan.confidence,
       source: pricing.freePlan.source_url,
@@ -202,9 +327,13 @@ export function extractPricingModel({
       price: null,
       currency: null,
       billing_period: "unknown",
+      billing_mode: "custom",
       billing_type: "contact_sales",
       limits: findLimits(pricing.contactSales.evidence_text),
+      included_features: [],
       cta: ctaForEvidence(ctas, pricing.contactSales.evidence_text),
+      is_enterprise: true,
+      is_custom_price: true,
       evidence: evidenceFromFact(pricing.contactSales, "pricing"),
       confidence: pricing.contactSales.confidence,
       source: pricing.contactSales.source_url,
@@ -254,13 +383,54 @@ export function extractPricingModel({
                 ? "free"
                 : "fixed";
 
-  return {
+  const fallback: PricingModel = {
     pricing_visibility,
     pricing_model,
+    pricing_model_type:
+      pricing_model === "fixed" || pricing_model === "free"
+        ? "fixed_plans"
+        : pricing_model === "usage_based"
+          ? "usage_based"
+          : pricing_model === "seat_based"
+            ? "seat_based"
+            : pricing_model === "contact_sales"
+              ? "contact_sales"
+              : pricing_model === "mixed"
+                ? "mixed"
+                : "unknown",
+    billing_modes: uniqueBy(
+      plans
+        .map((plan) => plan.billing_mode)
+        .filter((mode): mode is PricingModel["billing_modes"][number] =>
+          mode !== "unknown",
+        ),
+      (mode) => mode,
+    ),
     plans: uniqueBy(plans, (plan) => `${plan.name}:${plan.price}:${plan.currency}`),
+    usage_tiers: [],
+    enterprise_options: plans
+      .filter((plan) => plan.is_enterprise || plan.is_custom_price)
+      .map((plan) => ({
+        name: plan.name,
+        cta: plan.cta,
+        is_custom_price: true,
+        evidence: plan.evidence,
+        confidence: plan.confidence,
+        source: plan.source,
+      })),
     evidence,
     confidence: strongestConfidence(evidence),
+    completeness_score: hasPublic
+      ? plans.length >= 3
+        ? 80
+        : 60
+      : hasContact
+        ? 55
+        : 0,
+    missing_possible_data: [],
   };
+
+  return mergePricingModels(structured, fallback);
 }
 
 function pickLines(scrape: ScrapedPage, patterns: RegExp[], limit = 6) {
@@ -763,6 +933,20 @@ export function businessModelFacts(models: BusinessModels): StructuredFact[] {
       confidence: models.pricing.confidence,
     }),
     modelFact({
+      field: "pricing_model_type",
+      value: models.pricing.pricing_model_type,
+      sourceUrl: pricingEvidence?.source_url ?? "",
+      evidence: pricingEvidence,
+      confidence: models.pricing.confidence,
+    }),
+    modelFact({
+      field: "pricing_completeness",
+      value: String(models.pricing.completeness_score),
+      sourceUrl: pricingEvidence?.source_url ?? "",
+      evidence: pricingEvidence,
+      confidence: models.pricing.confidence,
+    }),
+    modelFact({
       field: "cta_funnel_intent",
       value: models.cta.funnel_intent,
       sourceUrl: ctaEvidence?.source_url ?? "",
@@ -779,16 +963,72 @@ export function businessModelFacts(models: BusinessModels): StructuredFact[] {
   );
 
   for (const plan of models.pricing.plans.slice(0, 8)) {
+    const priceLabel =
+      plan.price === null
+        ? plan.is_custom_price
+          ? "custom"
+          : plan.billing_type
+        : `${plan.currency ?? ""} ${plan.price}`;
+    const details = [
+      plan.billing_period !== "unknown" ? `per ${plan.billing_period}` : null,
+      plan.billing_mode !== "unknown" ? plan.billing_mode : null,
+      plan.limits[0],
+    ]
+      .filter(Boolean)
+      .join(", ");
+
     facts.push(
       modelFact({
         field: "pricing_plan",
-        value:
-          plan.price === null
-            ? `${plan.name}: ${plan.billing_type}`
-            : `${plan.name}: ${plan.currency ?? ""} ${plan.price}`,
+        value: details
+          ? `${plan.name}: ${priceLabel} (${details})`
+          : `${plan.name}: ${priceLabel}`,
         sourceUrl: plan.source,
         evidence: plan.evidence[0],
         confidence: plan.confidence,
+      }),
+    );
+  }
+
+  for (const tier of models.pricing.usage_tiers.slice(0, 20)) {
+    const priceLabel =
+      tier.price === null
+        ? "custom"
+        : `${tier.currency ?? ""} ${tier.price}`;
+    const period =
+      tier.billing_period !== "unknown" ? ` per ${tier.billing_period}` : "";
+
+    facts.push(
+      modelFact({
+        field: "usage_tier",
+        value: `${tier.limit ?? tier.label}: ${priceLabel}${period}`,
+        sourceUrl: tier.source,
+        evidence: tier.evidence[0],
+        confidence: tier.confidence,
+      }),
+    );
+  }
+
+  for (const mode of models.pricing.billing_modes) {
+    facts.push(
+      modelFact({
+        field: "billing_mode",
+        value: mode,
+        sourceUrl: pricingEvidence?.source_url ?? "",
+        evidence: pricingEvidence,
+        confidence: models.pricing.confidence,
+      }),
+    );
+  }
+
+  for (const missing of models.pricing.missing_possible_data) {
+    facts.push(
+      modelFact({
+        field: "pricing_missing_data",
+        value: missing,
+        sourceUrl: pricingEvidence?.source_url ?? "",
+        evidence: pricingEvidence,
+        confidence: "medium",
       }),
     );
   }

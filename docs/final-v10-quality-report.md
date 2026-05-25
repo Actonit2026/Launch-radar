@@ -23,22 +23,22 @@ SECTION E - UX improvements
 
 SECTION F - Delight score
 - Insight Delight: 85/100.
-- First delight under 5s: 20/100.
+- First delight under 5s: 25/100.
 - Product understanding after scan: 100/100.
 
 SECTION G - Updated metrics
 - Analyzer: 100 (target 96)
 - Trust: 100 (target 99)
-- UX: 92 (target 95)
+- UX: 85 (target 95)
 - Product Value: 99 (target 94)
-- Performance: 70 (target 88)
+- Performance: 45 (target 88)
 - Recommendation: 100 (target 95)
-- Median time to insight: 5778ms
-- P95 time to insight: 12293ms
+- Median time to insight: 8059ms
+- P95 time to insight: 15092ms
 
 SECTION H - Remaining blockers
-- UX 92 is below 95.
-- Performance 70 is below 88.
+- UX 85 is below 95.
+- Performance 45 is below 88.
 - Delight 85 is below 90.
 - No repeated failure groups.
 

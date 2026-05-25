@@ -148,6 +148,18 @@ function PricingExperienceSection({
   display: IntelligenceDisplayView;
   showEvidence?: boolean;
 }) {
+  const pricingMeta = [
+    display.pricingModelType
+      ? display.pricingModelType.replace(/_/g, " ")
+      : null,
+    display.billingModes.length
+      ? `Billing: ${display.billingModes.join(", ")}`
+      : null,
+    typeof display.pricingCompleteness === "number"
+      ? `${display.pricingCompleteness}/100 parsed`
+      : null,
+  ].filter(Boolean);
+
   return (
     <div className="border-t border-ink/10 pt-4">
       <div className="flex flex-wrap items-center gap-2">
@@ -163,6 +175,18 @@ function PricingExperienceSection({
       <p className="mt-2 text-sm leading-6 text-ink/70">
         {display.pricing.text}
       </p>
+      {pricingMeta.length ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {pricingMeta.map((item) => (
+            <span
+              key={item}
+              className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold capitalize text-ink/55"
+            >
+              {item}
+            </span>
+          ))}
+        </div>
+      ) : null}
       <ul className="mt-3 space-y-2">
         {display.pricingOptions.map((option) => (
           <PricingOption
@@ -172,6 +196,14 @@ function PricingExperienceSection({
           />
         ))}
       </ul>
+      {display.pricingMissingData.length ? (
+        <p className="mt-2 text-xs leading-5 text-ink/45">
+          Missing:{" "}
+          {display.pricingMissingData
+            .map((item) => item.replace(/_/g, " "))
+            .join(", ")}
+        </p>
+      ) : null}
     </div>
   );
 }

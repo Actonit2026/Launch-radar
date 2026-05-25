@@ -111,8 +111,6 @@ const modelNoiseSelectors = [
   "canvas",
   "iframe",
   "template",
-  "[hidden]",
-  "[aria-hidden='true']",
   "[class*='cookie']",
   "[id*='cookie']",
   "[class*='consent']",

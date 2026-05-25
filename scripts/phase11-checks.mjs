@@ -26,6 +26,7 @@ const sourceFiles = [
   "src/lib/intelligence/types.ts",
   "src/lib/intelligence/text.ts",
   "src/lib/intelligence/pricing.ts",
+  "src/lib/intelligence/pricing-structure.ts",
   "src/lib/intelligence/positioning.ts",
   "src/lib/intelligence/ctas.ts",
   "src/lib/intelligence/features.ts",
@@ -247,6 +248,7 @@ function scrapedPage({
   title = "Fixture page",
   metaDescription = `${title} meta`,
   rawText,
+  html = "",
   links = [],
   pageModel,
   status = 200,
@@ -262,6 +264,7 @@ function scrapedPage({
     metaDescription,
     status,
     ok,
+    html,
     error,
     errorType,
     fetchStatus,
@@ -353,6 +356,7 @@ try {
         url,
         title,
         rawText: extractMeaningfulText(fixtureHtml),
+        html: fixtureHtml,
         pageModel,
       }),
     });
@@ -619,6 +623,103 @@ try {
     assert.ok(
       metadataPage.features.features.some((feature) =>
         /Build with AI|Visual editing|Database|Privacy rules/i.test(feature.value),
+      ),
+    );
+  });
+
+  check("Final V11 parses Plausible and Fathom-style structured pricing", () => {
+    const plausible = pageFromHtml({
+      title: "Plausible pricing",
+      url: "https://plausible.example/pricing",
+      pageType: "pricing",
+      body: [
+        "<section class=\"pricing\"><h1>Simple, transparent pricing</h1>",
+        "<div class=\"billing-toggle\"><button>Monthly</button><button>Yearly</button></div>",
+        "<label>Pageviews per month</label><input type=\"range\" aria-label=\"pageview based pricing slider\" />",
+        "<article class=\"plan\"><h2>Starter</h2><p>\u20AC9/month</p><p>Up to 10,000 monthly pageviews</p><a>Start free trial</a></article>",
+        "<article class=\"plan\"><h2>Growth</h2><p>\u20AC14/month</p><p>Up to 100,000 monthly pageviews</p><a>Start free trial</a></article>",
+        "<article class=\"plan\"><h2>Business</h2><p>\u20AC19/month</p><p>Up to 200,000 monthly pageviews</p><a>Start free trial</a></article>",
+        "<article class=\"plan\"><h2>Enterprise</h2><p>Custom pricing</p><a>Contact us</a></article>",
+        "</section>",
+      ].join(""),
+    });
+    const plausibleModel = plausible.models.pricing;
+
+    assert.equal(plausibleModel.pricing_visibility, "partially_public");
+    assert.ok(plausibleModel.billing_modes.includes("monthly"));
+    assert.ok(plausibleModel.billing_modes.includes("yearly"));
+    assert.ok(plausibleModel.billing_modes.includes("usage"));
+    assert.ok(
+      plausibleModel.plans.some((plan) =>
+        plan.name === "Starter" &&
+        plan.price === 9 &&
+        plan.currency === "EUR" &&
+        plan.billing_period === "month",
+      ),
+    );
+    assert.ok(plausibleModel.plans.some((plan) => plan.name === "Growth" && plan.price === 14));
+    assert.ok(plausibleModel.plans.some((plan) => plan.name === "Business" && plan.price === 19));
+    assert.ok(plausibleModel.plans.some((plan) => plan.is_custom_price));
+    assert.ok(plausibleModel.completeness_score >= 80);
+    assert.ok(
+      plausible.facts.some((fact) =>
+        fact.field === "pricing_plan" && /Starter.*EUR 9/i.test(fact.value),
+      ),
+    );
+
+    const fathom = pageFromHtml({
+      title: "Fathom pricing",
+      url: "https://fathom.example/pricing",
+      pageType: "pricing",
+      body: [
+        "<section class=\"pricing\"><h1>Simple pricing</h1>",
+        "<p>Starts at $15/month.</p>",
+        "<button>View our pricing plans</button>",
+        "<div class=\"pricing-modal\" hidden><h2>Pricing plans</h2><button>Monthly</button><button>Yearly</button>",
+        "<table><thead><tr><th>Pageviews</th><th>Monthly price</th></tr></thead><tbody>",
+        "<tr><td>Up to 100,000 pageviews</td><td>$15/month</td></tr>",
+        "<tr><td>Up to 200,000 pageviews</td><td>$25/month</td></tr>",
+        "<tr><td>Up to 500,000 pageviews</td><td>$45/month</td></tr>",
+        "<tr><td>Up to 1,000,000 pageviews</td><td>$60/month</td></tr>",
+        "<tr><td>Up to 2,000,000 pageviews</td><td>$100/month</td></tr>",
+        "<tr><td>Up to 5,000,000 pageviews</td><td>$140/month</td></tr>",
+        "<tr><td>Up to 10,000,000 pageviews</td><td>$200/month</td></tr>",
+        "<tr><td>Up to 15,000,000 pageviews</td><td>$290/month</td></tr>",
+        "<tr><td>Up to 20,000,000 pageviews</td><td>$380/month</td></tr>",
+        "<tr><td>Up to 25,000,000 pageviews</td><td>$470/month</td></tr>",
+        "<tr><td>Over 25,000,000 pageviews</td><td>Contact us</td></tr>",
+        "</tbody></table></div></section>",
+      ].join(""),
+    });
+    const fathomModel = fathom.models.pricing;
+
+    assert.equal(fathomModel.pricing_model_type, "usage_based");
+    assert.ok(fathomModel.billing_modes.includes("monthly"));
+    assert.ok(fathomModel.billing_modes.includes("yearly"));
+    assert.ok(fathomModel.usage_tiers.length >= 11);
+    assert.ok(
+      fathomModel.usage_tiers.some((tier) =>
+        tier.price === 15 &&
+        tier.currency === "USD" &&
+        /100,000 pageviews/i.test(tier.limit ?? ""),
+      ),
+    );
+    assert.ok(
+      fathomModel.usage_tiers.some((tier) =>
+        tier.price === 470 &&
+        /25,000,000 pageviews/i.test(tier.limit ?? ""),
+      ),
+    );
+    assert.ok(
+      fathomModel.usage_tiers.some((tier) =>
+        tier.price === null &&
+        /25,000,000 pageviews/i.test(tier.limit ?? ""),
+      ),
+    );
+    assert.ok(fathomModel.completeness_score >= 80);
+    assert.ok(
+      fathom.facts.some((fact) =>
+        fact.field === "usage_tier" && /\$|USD/.test(fact.value) && /100,000/.test(fact.value),
       ),
     );
   });

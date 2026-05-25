@@ -48,6 +48,7 @@ export type PricingPlanModel = {
   price: number | null;
   currency: NormalizedPrice["currency"] | null;
   billing_period: "week" | "month" | "year" | "usage" | "unknown";
+  billing_mode: "monthly" | "yearly" | "weekly" | "usage" | "custom" | "unknown";
   billing_type:
     | "fixed"
     | "usage_based"
@@ -56,7 +57,32 @@ export type PricingPlanModel = {
     | "contact_sales"
     | "unknown";
   limits: string[];
+  included_features: string[];
   cta: string | null;
+  is_enterprise: boolean;
+  is_custom_price: boolean;
+  evidence: ModelEvidence[];
+  confidence: Confidence;
+  source: string;
+};
+
+export type PricingUsageTierModel = {
+  id: string;
+  label: string;
+  price: number | null;
+  currency: NormalizedPrice["currency"] | null;
+  billing_period: "week" | "month" | "year" | "usage" | "unknown";
+  limit: string | null;
+  unit: string | null;
+  evidence: ModelEvidence[];
+  confidence: Confidence;
+  source: string;
+};
+
+export type PricingEnterpriseOption = {
+  name: string;
+  cta: string | null;
+  is_custom_price: true;
   evidence: ModelEvidence[];
   confidence: Confidence;
   source: string;
@@ -77,9 +103,22 @@ export type PricingModel = {
     | "contact_sales"
     | "mixed"
     | "unknown";
+  pricing_model_type:
+    | "fixed_plans"
+    | "seat_based"
+    | "usage_based"
+    | "usage_based_slider"
+    | "contact_sales"
+    | "mixed"
+    | "unknown";
+  billing_modes: Array<"monthly" | "yearly" | "weekly" | "usage" | "custom">;
   plans: PricingPlanModel[];
+  usage_tiers: PricingUsageTierModel[];
+  enterprise_options: PricingEnterpriseOption[];
   evidence: ModelEvidence[];
   confidence: Confidence;
+  completeness_score: number;
+  missing_possible_data: string[];
 };
 
 export type PositioningModel = {

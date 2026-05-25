@@ -186,6 +186,10 @@ function deterministicSummary({
     new Set(pages.flatMap((page) => page.warnings)),
   );
   const lowestPrice = bestFact(factsByField(pages, "visible_price"));
+  const structuredPricing = bestFact([
+    ...factsByField(pages, "pricing_plan"),
+    ...factsByField(pages, "usage_tier"),
+  ]);
   const contactSales = bestFact(factsByField(pages, "contact_sales"));
   const headline = bestFact(factsByField(pages, "homepage_headline"));
   const valueProp = bestFact(factsByField(pages, "main_value_prop"));
@@ -193,7 +197,7 @@ function deterministicSummary({
   const primaryCta = bestFact(factsByField(pages, "primary_cta"));
   const unknowns: string[] = [];
 
-  if (!lowestPrice && !contactSales) {
+  if (!lowestPrice && !structuredPricing && !contactSales) {
     unknowns.push("No public pricing block detected on this URL.");
   }
 
@@ -207,6 +211,8 @@ function deterministicSummary({
 
   const pricingSummary = lowestPrice
     ? summaryFromFact(lowestPrice)
+    : structuredPricing
+      ? summaryFromFact(structuredPricing)
     : contactSales
       ? summaryFromFact(contactSales)
       : null;
