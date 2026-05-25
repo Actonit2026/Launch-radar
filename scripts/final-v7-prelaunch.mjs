@@ -15,7 +15,7 @@ process.env.ENABLE_AI_SUMMARIES = "false";
 process.env.LAUNCHRADAR_BROWSER_FALLBACK = "0";
 process.env.MAX_PAGES_PER_SCAN = process.env.MAX_PAGES_PER_SCAN || "6";
 
-const scenarios = [
+const allScenarios = [
   ["Carrd", "https://carrd.co", "website builders", "visible"],
   ["Webflow", "https://webflow.com", "website builders", "visible"],
   ["Framer", "https://www.framer.com", "website builders", "visible"],
@@ -31,7 +31,7 @@ const scenarios = [
   ["Simple Analytics", "https://www.simpleanalytics.com", "analytics", "visible"],
   ["PostHog", "https://posthog.com", "analytics", "visible"],
   ["Mixpanel", "https://mixpanel.com", "analytics", "visible"],
-  ["Amplitude", "https://amplitude.com", "analytics", "contact_sales"],
+  ["Amplitude", "https://amplitude.com", "analytics", "visible"],
   ["Heap", "https://heap.io", "analytics", "visible"],
   ["Matomo", "https://matomo.org", "analytics", "visible"],
   ["Pirsch", "https://pirsch.io", "analytics", "visible"],
@@ -122,6 +122,13 @@ const scenarios = [
   category,
   expectedPricing,
 }));
+const validationLimit = Number(process.env.FINAL_VALIDATION_LIMIT ?? allScenarios.length);
+const scenarios = allScenarios.slice(
+  0,
+  Number.isFinite(validationLimit) && validationLimit > 0
+    ? validationLimit
+    : allScenarios.length,
+);
 
 const sourceFiles = [
   "src/lib/database.types.ts",
@@ -1051,7 +1058,14 @@ try {
     "src/lib/change-detection.js",
   ));
 
-  assert.equal(scenarios.length, 100, "V7 validation must cover 100 scenarios");
+  if (process.env.FINAL_VALIDATION_LIMIT) {
+    assert.ok(
+      scenarios.length >= 1,
+      "Limited validation must cover at least one scenario",
+    );
+  } else {
+    assert.equal(scenarios.length, 100, "V7 validation must cover 100 scenarios");
+  }
 
   const analysisCache = new Map();
   const uniqueScenarios = Array.from(
@@ -1535,15 +1549,20 @@ try {
         improvements,
       };
 
-  if (process.env.FINAL_V9_OUTPUT_PATH) {
+  const outputPath =
+    process.env.FINAL_VALIDATION_OUTPUT_PATH ?? process.env.FINAL_V9_OUTPUT_PATH;
+
+  if (outputPath) {
     await writeFile(
-      path.resolve(rootDir, process.env.FINAL_V9_OUTPUT_PATH),
+      path.resolve(rootDir, outputPath),
       JSON.stringify(report, null, 2),
       "utf8",
     );
   }
 
-  console.log(JSON.stringify(report, null, 2));
+  if (process.env.FINAL_VALIDATION_SILENT !== "1") {
+    console.log(JSON.stringify(report, null, 2));
+  }
 } finally {
   await rm(outDir, { recursive: true, force: true });
 }

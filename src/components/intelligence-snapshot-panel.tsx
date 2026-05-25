@@ -3,6 +3,8 @@ import type {
   IntelligenceDisplayView,
   IntelligenceFactView,
   IntelligenceSectionView,
+  PricingExperienceState,
+  PricingOptionView,
 } from "@/lib/intelligence/display";
 import type { ScanQualitySummary } from "@/lib/scan-quality";
 
@@ -17,11 +19,32 @@ const statusLabels: Record<IntelligenceSectionView["status"], string> = {
   unavailable: "Unavailable",
 };
 
+const pricingStateLabels: Record<PricingExperienceState, string> = {
+  public_pricing: "Public pricing",
+  contact_sales: "Contact sales",
+  pricing_unclear: "Pricing unclear",
+  pricing_scanning: "Pricing scanning",
+  no_public_pricing: "No public pricing",
+};
+
 function statusClassName(status: IntelligenceSectionView["status"]) {
   switch (status) {
     case "found":
       return "bg-moss/10 text-moss";
     case "unclear":
+      return "bg-amber-100 text-amber-700";
+    default:
+      return "bg-ink/5 text-ink/55";
+  }
+}
+
+function pricingStateClassName(state: PricingExperienceState) {
+  switch (state) {
+    case "public_pricing":
+      return "bg-moss/10 text-moss";
+    case "contact_sales":
+    case "pricing_unclear":
+    case "pricing_scanning":
       return "bg-amber-100 text-amber-700";
     default:
       return "bg-ink/5 text-ink/55";
@@ -93,6 +116,66 @@ function IntelligenceSection({
   );
 }
 
+function PricingOption({
+  option,
+  showEvidence,
+}: {
+  option: PricingOptionView;
+  showEvidence?: boolean;
+}) {
+  return (
+    <li className="rounded-md bg-paper px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-sm font-semibold text-ink/75">{option.label}</p>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${pricingStateClassName(
+            option.state,
+          )}`}
+        >
+          {pricingStateLabels[option.state]}
+        </span>
+      </div>
+      <p className="mt-1 text-sm leading-6 text-ink/70">{option.text}</p>
+      <SourceEvidence fact={option.fact} showEvidence={showEvidence} />
+    </li>
+  );
+}
+
+function PricingExperienceSection({
+  display,
+  showEvidence,
+}: {
+  display: IntelligenceDisplayView;
+  showEvidence?: boolean;
+}) {
+  return (
+    <div className="border-t border-ink/10 pt-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-sm font-semibold text-ink">Pricing</h3>
+        <span
+          className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${pricingStateClassName(
+            display.pricingState,
+          )}`}
+        >
+          {pricingStateLabels[display.pricingState]}
+        </span>
+      </div>
+      <p className="mt-2 text-sm leading-6 text-ink/70">
+        {display.pricing.text}
+      </p>
+      <ul className="mt-3 space-y-2">
+        {display.pricingOptions.map((option) => (
+          <PricingOption
+            key={`${option.label}:${option.text}:${option.fact?.sourceUrl ?? ""}`}
+            option={option}
+            showEvidence={showEvidence}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function FeatureList({
   display,
   showEvidence,
@@ -143,39 +226,43 @@ function BusinessProfileOverview({ display }: { display: IntelligenceDisplayView
     );
   }
 
+  const missingSignals = [
+    display.pricing.status === "unavailable" ? "pricing" : null,
+    display.positioning.status !== "found" ? "positioning" : null,
+    display.cta.status !== "found" ? "CTA" : null,
+    display.features.status !== "found" ? "features" : null,
+    display.changelog.status !== "found" ? "changelog" : null,
+  ].filter(Boolean);
   const rows = [
     [
-      "Does",
+      "Purpose",
       profile.product_summary.value_props[0] ??
         profile.product_summary.use_cases[0] ??
         "Positioning unclear from public page content.",
     ],
     [
-      "Serves",
-      profile.product_summary.target_customers.slice(0, 2).join(", ") ||
-        profile.product_summary.category ||
-        "Target customer unclear.",
-    ],
-    [
-      "Monetizes",
-      profile.monetization.pricing_visibility === "public" ||
-      profile.monetization.pricing_visibility === "partially_public"
-        ? `${profile.monetization.pricing_model} pricing visible`
-        : profile.monetization.pricing_visibility === "contact_sales"
-          ? "Contact sales detected"
-          : "No public pricing detected",
+      "Positioning",
+      [
+        profile.product_summary.category,
+        profile.product_summary.target_customers.slice(0, 2).join(", "),
+      ]
+        .filter(Boolean)
+        .join(" for ") || "Positioning unclear from public page content.",
     ],
     ["CTA", profile.conversion.primary_cta ?? "No clear CTA detected."],
     [
-      "Themes",
-      profile.product_capabilities.feature_categories.slice(0, 3).join(", ") ||
-        "Feature themes unclear.",
+      "Pricing state",
+      pricingStateLabels[display.pricingState],
     ],
     [
-      "Updates",
-      profile.momentum.changelog_detected
-        ? "Public updates detected"
-        : "No changelog detected",
+      "Confidence",
+      `${display.overallConfidence} confidence${
+        display.scanQuality ? `, scan ${display.scanQuality.score}/100` : ""
+      }`,
+    ],
+    [
+      "Missing signals",
+      missingSignals.length ? missingSignals.join(", ") : "Core signals found.",
     ],
   ];
 
@@ -305,12 +392,10 @@ export function IntelligenceSnapshotPanel({
 }: IntelligenceSnapshotPanelProps) {
   const sections = compact
     ? [
-        ["Pricing", display.pricing] as const,
         ["Positioning", display.positioning] as const,
         ["Changelog", display.changelog] as const,
       ]
     : [
-        ["Pricing", display.pricing] as const,
         ["Positioning", display.positioning] as const,
         ["Primary CTA", display.cta] as const,
         ["Changelog", display.changelog] as const,
@@ -348,6 +433,7 @@ export function IntelligenceSnapshotPanel({
             : "mt-5 grid gap-5 md:grid-cols-2"
         }
       >
+        <PricingExperienceSection display={display} showEvidence={!compact} />
         {sections.map(([title, section]) => (
           <IntelligenceSection
             key={title}

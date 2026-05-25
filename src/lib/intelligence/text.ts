@@ -8,7 +8,13 @@ import type {
 
 export function textLines(scrape: ScrapedPage) {
   if (scrape.pageModel?.visibleContent) {
-    return scrape.pageModel.visibleContent
+    return [
+      scrape.title,
+      scrape.metaDescription,
+      scrape.pageModel.visibleContent,
+    ]
+      .filter(Boolean)
+      .join("\n")
       .split("\n")
       .map((line) => line.replace(/\s+/g, " ").trim())
       .filter(Boolean);

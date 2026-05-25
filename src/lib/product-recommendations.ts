@@ -332,11 +332,11 @@ function specificTitleScore(title: string) {
 }
 
 function displayTierForRecommendationValue(score: number) {
-  if (score >= 65) {
+  if (score >= 60) {
     return "prioritize";
   }
 
-  if (score >= 55) {
+  if (score >= 52) {
     return "show";
   }
 
@@ -345,6 +345,61 @@ function displayTierForRecommendationValue(score: number) {
   }
 
   return "reject";
+}
+
+function recommendationTrust(recommendation: ProductRecommendationDraft) {
+  const evidence = recommendation.evidence_json;
+
+  if (!isRecord(evidence)) {
+    return {};
+  }
+
+  return isRecord(evidence.trust) ? evidence.trust : {};
+}
+
+function recommendationValueScore(recommendation: ProductRecommendationDraft) {
+  return numberOrDefault(
+    recommendationTrust(recommendation).recommendation_value_score,
+    0,
+  );
+}
+
+function recommendationNovelty(recommendation: ProductRecommendationDraft) {
+  return numberOrDefault(
+    recommendationTrust(recommendation).novelty_score,
+    0,
+  );
+}
+
+function recommendationPriority(recommendation: ProductRecommendationDraft) {
+  return numberOrDefault(
+    recommendationTrust(recommendation).priority_score,
+    0,
+  );
+}
+
+function recommendationValueTier(recommendation: ProductRecommendationDraft) {
+  const tier = recommendationTrust(recommendation).recommendation_value_tier;
+
+  return typeof tier === "string" ? tier : "reject";
+}
+
+function isActionableHighValueRecommendation(
+  recommendation: ProductRecommendationDraft,
+) {
+  const trust = recommendationTrust(recommendation);
+  const adversarialReview = trust.adversarial_review;
+  const survives =
+    isRecord(adversarialReview) && adversarialReview.survives === true;
+
+  return (
+    recommendation.confidence >= 75 &&
+    recommendationValueScore(recommendation) >= 60 &&
+    recommendationNovelty(recommendation) >= 0.6 &&
+    recommendationPriority(recommendation) >= 35 &&
+    recommendationValueTier(recommendation) === "prioritize" &&
+    survives
+  );
 }
 
 function recommendationValueReview({
@@ -742,9 +797,14 @@ export function buildProductRecommendations(
     ctaRecommendation(input),
     positioningRecommendation(input),
   ].filter((item): item is ProductRecommendationDraft => Boolean(item));
-  const sorted = recommendations.sort((a, b) => b.confidence - a.confidence);
-  const keepCount =
-    sorted.length <= 1 ? sorted.length : Math.max(1, Math.floor(sorted.length * 0.7));
 
-  return sorted.slice(0, keepCount).slice(0, 3);
+  return recommendations
+    .filter(isActionableHighValueRecommendation)
+    .sort(
+      (a, b) =>
+        recommendationValueScore(b) - recommendationValueScore(a) ||
+        recommendationPriority(b) - recommendationPriority(a) ||
+        b.confidence - a.confidence,
+    )
+    .slice(0, 3);
 }

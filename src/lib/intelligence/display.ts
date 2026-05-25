@@ -74,6 +74,21 @@ export type IntelligenceSectionView = {
   fact?: IntelligenceFactView;
 };
 
+export type PricingExperienceState =
+  | "public_pricing"
+  | "contact_sales"
+  | "pricing_unclear"
+  | "pricing_scanning"
+  | "no_public_pricing";
+
+export type PricingOptionView = {
+  state: PricingExperienceState;
+  label: string;
+  text: string;
+  confidence: Confidence;
+  fact?: IntelligenceFactView;
+};
+
 export type IntelligenceDisplayView = {
   snapshotId: string;
   createdAt: string;
@@ -83,6 +98,8 @@ export type IntelligenceDisplayView = {
   pagesAnalyzed: number;
   overview: IntelligenceSectionView;
   pricing: IntelligenceSectionView;
+  pricingState: PricingExperienceState;
+  pricingOptions: PricingOptionView[];
   positioning: IntelligenceSectionView;
   cta: IntelligenceSectionView;
   changelog: IntelligenceSectionView;
@@ -387,6 +404,116 @@ function normalizedAmount(fact: IntelligenceFactView) {
   return period === "year" ? amount / 12 : amount;
 }
 
+function priceOptionLabel(fact: IntelligenceFactView) {
+  if (isRecord(fact.normalizedValue)) {
+    const plan = stringOrNull(fact.normalizedValue.plan);
+
+    if (plan) {
+      return plan;
+    }
+  }
+
+  return "Visible price";
+}
+
+function priceOptionText(fact: IntelligenceFactView) {
+  if (!isRecord(fact.normalizedValue)) {
+    return fact.value;
+  }
+
+  const period = stringOrNull(fact.normalizedValue.period);
+  const unit = stringOrNull(fact.normalizedValue.unit);
+  const suffix = [
+    period && period !== "unknown" ? `per ${period}` : null,
+    unit ? `per ${unit}` : null,
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  return suffix ? `${fact.value} (${suffix})` : fact.value;
+}
+
+function pricingOptions(snapshot: IntelligenceSnapshotView): PricingOptionView[] {
+  const priceOptions = factsByField(snapshot, "visible_price")
+    .sort((a, b) => normalizedAmount(a) - normalizedAmount(b) || byConfidence(a, b))
+    .map((fact): PricingOptionView => ({
+      state: fact.confidence === "low" ? "pricing_unclear" : "public_pricing",
+      label: priceOptionLabel(fact),
+      text: priceOptionText(fact),
+      confidence: fact.confidence,
+      fact,
+    }));
+  const freeOptions = factsByField(snapshot, "free_plan").map(
+    (fact): PricingOptionView => ({
+      state: "public_pricing",
+      label: "Free plan",
+      text: fact.value,
+      confidence: fact.confidence,
+      fact,
+    }),
+  );
+  const contactOptions = factsByField(snapshot, "contact_sales").map(
+    (fact): PricingOptionView => ({
+      state: "contact_sales",
+      label: "Contact sales",
+      text: "Contact sales is visible on the public site.",
+      confidence: fact.confidence,
+      fact,
+    }),
+  );
+  const options = uniquePricingOptions([
+    ...freeOptions,
+    ...priceOptions,
+    ...contactOptions,
+  ]);
+
+  if (options.length) {
+    return options;
+  }
+
+  return [
+    {
+      state: "no_public_pricing",
+      label: "No public pricing",
+      text: "No public pricing detected.",
+      confidence: "low",
+    },
+  ];
+}
+
+function uniquePricingOptions(options: PricingOptionView[]) {
+  const seen = new Set<string>();
+
+  return options.filter((option) => {
+    const key = `${option.state}:${option.label}:${option.text}:${option.fact?.sourceUrl ?? ""}`;
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function pricingStateFromOptions(
+  options: PricingOptionView[],
+): PricingExperienceState {
+  if (options.some((option) => option.state === "public_pricing")) {
+    return "public_pricing";
+  }
+
+  if (options.some((option) => option.state === "contact_sales")) {
+    return "contact_sales";
+  }
+
+  if (options.some((option) => option.state === "pricing_unclear")) {
+    return "pricing_unclear";
+  }
+
+  return "no_public_pricing";
+}
+
 function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSectionView {
   const prices = factsByField(snapshot, "visible_price").sort(
     (a, b) => normalizedAmount(a) - normalizedAmount(b) || byConfidence(a, b),
@@ -416,7 +543,7 @@ function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSection
   if (weakPrice) {
     return {
       status: "unclear",
-      text: `Detected ${weakPrice.value}, billing period unclear.`,
+      text: `Pricing unclear: detected ${weakPrice.value}, but confidence was limited.`,
       fact: weakPrice,
     };
   }
@@ -435,7 +562,7 @@ function pricingSection(snapshot: IntelligenceSnapshotView): IntelligenceSection
 
   return {
     status: "unavailable",
-    text: "No public pricing block detected on this URL.",
+    text: "No public pricing detected.",
   };
 }
 
@@ -559,6 +686,8 @@ export function buildIntelligenceDisplay(
 
   const features = featureFacts(snapshot);
   const pricing = pricingSection(snapshot);
+  const allPricingOptions = pricingOptions(snapshot);
+  const pricingState = pricingStateFromOptions(allPricingOptions);
   const positioning = positioningSection(snapshot);
   const cta = ctaSection(snapshot);
   const changelog = changelogSection(snapshot);
@@ -584,6 +713,8 @@ export function buildIntelligenceDisplay(
     pagesAnalyzed: snapshot.analyzedPages.length,
     overview: overviewSection(snapshot),
     pricing,
+    pricingState,
+    pricingOptions: allPricingOptions,
     positioning,
     cta,
     changelog,

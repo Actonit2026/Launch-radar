@@ -32,6 +32,10 @@ const sourceFiles = [
   "src/lib/intelligence/changelog.ts",
   "src/lib/intelligence/models.ts",
   "src/lib/intelligence/analyze.ts",
+  "src/lib/intelligence/business-profile.ts",
+  "src/lib/scan-quality.ts",
+  "src/lib/intelligence/display.ts",
+  "src/lib/product-recommendations.ts",
   "src/lib/ai/config.ts",
   "src/lib/ai/intelligence-summary.ts",
 ].map((file) => path.join(rootDir, file));
@@ -241,6 +245,7 @@ async function withFixtureSite(callback) {
 function scrapedPage({
   url = "https://example.com/pricing",
   title = "Fixture page",
+  metaDescription = `${title} meta`,
   rawText,
   links = [],
   pageModel,
@@ -254,7 +259,7 @@ function scrapedPage({
     requestedUrl: url,
     finalUrl: url,
     title,
-    metaDescription: `${title} meta`,
+    metaDescription,
     status,
     ok,
     error,
@@ -319,6 +324,14 @@ try {
     outDir,
     "src/lib/ai/intelligence-summary.js",
   ));
+  const { buildIntelligenceDisplay } = require(path.join(
+    outDir,
+    "src/lib/intelligence/display.js",
+  ));
+  const { buildProductRecommendations } = require(path.join(
+    outDir,
+    "src/lib/product-recommendations.js",
+  ));
   const {
     buildSnapshotAnalysis,
     compareSnapshotAnalyses,
@@ -342,6 +355,38 @@ try {
         rawText: extractMeaningfulText(fixtureHtml),
         pageModel,
       }),
+    });
+  }
+
+  function displayFromPages(pages) {
+    return buildIntelligenceDisplay({
+      id: "snapshot_fixture",
+      createdAt: "2026-05-25T00:00:00.000Z",
+      source: "deterministic",
+      summary: {
+        executiveSummary: null,
+        pricingSummary: null,
+        positioningSummary: null,
+        featureSummary: null,
+        ctaSummary: null,
+        unknowns: [],
+        warnings: [],
+        overallConfidence: "medium",
+        businessProfile: null,
+        scanQuality: null,
+      },
+      facts: pages.flatMap((page) => page.facts),
+      analyzedPages: pages.map((page) => ({
+        sourceUrl: page.sourceUrl,
+        pageType: page.pageType,
+        title: page.title,
+        fetchStatus: page.fetchStatus,
+        contentHash: page.contentHash,
+        extractedTextLength: page.extractedTextLength,
+        factCount: page.facts.length,
+        warnings: page.warnings,
+      })),
+      warnings: pages.flatMap((page) => page.warnings),
     });
   }
 
@@ -497,6 +542,129 @@ try {
       ...cta.ctas.ctas,
       ...features.features.features,
     ]);
+  });
+
+  check("Final V10 quality pass keeps pricing options, ranks hero CTA, and upgrades feature signals", () => {
+    const pricingPage = pageFromHtml({
+      title: "Packages",
+      pageType: "pricing",
+      body: [
+        "<section class=\"pricing\">",
+        "<article><h2>Free</h2><p>Free forever</p><a>Start free</a></article>",
+        "<article><h2>Starter</h2><p>Starter $9/month</p><a>Get started</a></article>",
+        "<article><h2>Business</h2><p>Business $49 per user/month</p><a>Upgrade</a></article>",
+        "<article><h2>Enterprise</h2><p>Contact sales</p><a>Book demo</a></article>",
+        "</section>",
+      ].join(""),
+    });
+    const display = displayFromPages([pricingPage]);
+
+    assert.equal(display.pricingState, "public_pricing");
+    assert.ok(display.pricingOptions.some((option) => /Free plan/i.test(option.label)));
+    assert.ok(display.pricingOptions.some((option) => /\$9/.test(option.text)));
+    assert.ok(display.pricingOptions.some((option) => /\$49/.test(option.text)));
+    assert.ok(display.pricingOptions.some((option) => option.state === "contact_sales"));
+
+    const ctaPage = pageFromHtml({
+      body: [
+        "<nav><a>Sign in</a><a>Docs</a><a>Support</a></nav>",
+        "<section class=\"hero\"><h1>Revenue monitoring</h1><a href=\"/demo\">Book a demo</a><button>Start free</button></section>",
+        "<footer><a>Privacy</a></footer>",
+      ].join(""),
+    });
+
+    assert.match(ctaPage.ctas.primaryCta.value, /Book a demo|Start free/);
+    assert.ok(ctaPage.ctas.ctas.some((cta) => /Book a demo/i.test(cta.value)));
+    assert.ok(
+      !ctaPage.ctas.ctas.some((cta) => /sign in|docs|support|privacy/i.test(cta.value)),
+    );
+
+    const featurePage = pageFromHtml({
+      title: "Features",
+      pageType: "features",
+      body: [
+        "<section class=\"feature-grid\">",
+        "<article><h3>Workflow automation</h3><p>Automate repetitive launch tracking tasks.</p></article>",
+        "<article><h3>Evidence dashboard</h3><p>Review source-backed competitor intelligence.</p></article>",
+        "<article><h3>Alert monitoring</h3><p>Receive alerts when tracked pages change.</p></article>",
+        "</section>",
+        "<section><h2>Trusted by 2,500 customers</h2><p>Rated five stars by founders.</p></section>",
+      ].join(""),
+    });
+
+    assert.equal(featurePage.features.status, "found");
+    assert.ok(featurePage.features.features.length >= 3);
+    assert.ok(
+      !featurePage.features.features.some((feature) =>
+        /trusted by|rated|customers/i.test(feature.value),
+      ),
+    );
+
+    const metadataHtml =
+      '<!doctype html><html><head><title>No-code app builder</title><meta name="description" content="Build with AI when you want speed, edit visually when you want precision - design, database, logic, and privacy rules."></head><body><main><h1>Build web apps visually</h1></main></body></html>';
+    const metadataModel = buildPageModel(metadataHtml, "https://bubble.example");
+    const metadataPage = analyzePageIntelligence({
+      pageType: "homepage",
+      scrape: scrapedPage({
+        url: "https://bubble.example",
+        title: "No-code app builder",
+        metaDescription:
+          "Build with AI when you want speed, edit visually when you want precision - design, database, logic, and privacy rules.",
+        rawText: extractMeaningfulText(metadataHtml),
+        pageModel: metadataModel,
+      }),
+    });
+
+    assert.ok(metadataPage.features.features.length >= 3);
+    assert.ok(
+      metadataPage.features.features.some((feature) =>
+        /Build with AI|Visual editing|Database|Privacy rules/i.test(feature.value),
+      ),
+    );
+  });
+
+  check("Final V10 recommendations show only high-value actionable items", () => {
+    const userFact = {
+      field: "primary_cta",
+      value: "Learn more",
+      confidence: "medium",
+      confidence_score: 0.72,
+      source_url: "https://user.example",
+      evidence_text: "Learn more",
+      extraction_method: "deterministic_keyword",
+      normalized_value: { intent: "unknown" },
+    };
+    const competitorFact = (value) => ({
+      field: "primary_cta",
+      value,
+      confidence: "high",
+      confidence_score: 0.9,
+      source_url: `https://${value.toLowerCase().replace(/\s+/g, "-")}.example`,
+      evidence_text: value,
+      extraction_method: "deterministic_link",
+      normalized_value: { intent: "start_trial" },
+    });
+    const recommendations = buildProductRecommendations({
+      productFacts: [userFact],
+      competitorSnapshots: [
+        { competitorName: "Alpha", facts: [competitorFact("Start free")] },
+        { competitorName: "Beta", facts: [competitorFact("Start trial")] },
+        { competitorName: "Gamma", facts: [competitorFact("Get started")] },
+      ],
+    });
+
+    assert.ok(recommendations.length <= 3);
+    assert.ok(recommendations.length >= 1);
+    recommendations.forEach((recommendation) => {
+      assert.ok(recommendation.confidence >= 75);
+      assert.ok(
+        recommendation.evidence_json.trust.recommendation_value_score >= 60,
+      );
+      assert.equal(
+        recommendation.evidence_json.trust.recommendation_value_tier,
+        "prioritize",
+      );
+    });
   });
 
   check("detects per-user USD pricing and contact sales", () => {
