@@ -17,6 +17,11 @@ import {
   textLines,
   uniqueBy,
 } from "@/lib/intelligence/text";
+import {
+  classifyPricingContext,
+  hasReliablePricingPlanLabel,
+  parsePriceAmount,
+} from "@/lib/intelligence/pricing-context";
 
 type CheerioElement = Parameters<cheerio.CheerioAPI>[0];
 
@@ -91,26 +96,43 @@ function billingModeFor(
   return "unknown";
 }
 
-function isProductPricingText(text: string) {
+function isProductPricingText(
+  text: string,
+  context: { domContext?: string; section?: string; pageType?: PageType } = {},
+) {
+  const classified = classifyPricingContext({
+    text,
+    domContext: context.domContext,
+    section: context.section,
+    pageType: context.pageType,
+  });
   const verified =
+    classified.accepted ||
     verifiedPricingStructurePattern.test(text) ||
     ctaPattern.test(text) ||
     (pricingContextPattern.test(text) && planNamePattern.test(text));
 
-  return verified || !contaminatedPricePattern.test(text) && pricingContextPattern.test(text);
+  return verified && !(!classified.accepted && contaminatedPricePattern.test(text));
 }
 
-function parsePrices(text: string): ParsedPrice[] {
+function parsePrices(
+  text: string,
+  context: { domContext?: string; section?: string; pageType?: PageType } = {},
+): ParsedPrice[] {
   const normalized = normalizeText(text);
 
-  if (!isProductPricingText(normalized)) {
+  if (!isProductPricingText(normalized, context)) {
     return [];
   }
 
+  const amount = String.raw`(?:\d{1,3}(?:[,\s]\d{3})+(?:[.,]\d{1,2})?|\d{1,5}(?:[.,]\d{1,2})?)`;
   const patterns = [
-    /([$\u20AC\u00A3]|Ã¢â€šÂ¬|Ã‚Â£)\s?(\d{1,5}(?:[.,]\d{1,2})?)/gi,
-    /(\d{1,5}(?:[.,]\d{1,2})?)\s?([$\u20AC\u00A3]|Ã¢â€šÂ¬|Ã‚Â£)/gi,
-    /(?:(usd|eur|gbp)\s?(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s?(usd|eur|gbp))/gi,
+    new RegExp(`([$\\u20AC\\u00A3]|Ã¢â€šÂ¬|Ã‚Â£)\\s?(${amount})`, "gi"),
+    new RegExp(`(${amount})\\s?([$\\u20AC\\u00A3]|Ã¢â€šÂ¬|Ã‚Â£)`, "gi"),
+    new RegExp(
+      `(?:(usd|eur|gbp)\\s?(${amount})|(${amount})\\s?(usd|eur|gbp))`,
+      "gi",
+    ),
   ];
   const prices: ParsedPrice[] = [];
 
@@ -126,7 +148,7 @@ function parsePrices(text: string): ParsedPrice[] {
       const secondCurrency = second ? currencyFor(second) : null;
       const currency = firstCurrency ?? secondCurrency ?? currencyFor(first ?? fourth ?? "");
       const amountText = firstCurrency ? second : secondCurrency ? first : second ?? third;
-      const amount = amountText ? Number(amountText.replace(",", ".")) : Number.NaN;
+      const amount = amountText ? parsePriceAmount(amountText) : Number.NaN;
 
       if (!currency || !Number.isFinite(amount) || amount <= 0) {
         continue;
@@ -201,7 +223,7 @@ function allDomLines($: cheerio.CheerioAPI) {
     .filter(Boolean);
 }
 
-function planNameFromText(text: string, fallback = "Public pricing") {
+function planNameFromText(text: string, fallback: string | null = null) {
   const lines = text.split(/\n+/).map(normalizeText).filter(Boolean);
   const explicit = text.match(planNamePattern)?.[1];
 
@@ -218,7 +240,11 @@ function planNameFromText(text: string, fallback = "Public pricing") {
       !ctaPattern.test(line),
   );
 
-  return heading ?? fallback;
+  if (heading && hasReliablePricingPlanLabel(heading)) {
+    return heading;
+  }
+
+  return fallback && hasReliablePricingPlanLabel(fallback) ? fallback : null;
 }
 
 function limitFromText(text: string) {
@@ -277,7 +303,7 @@ function includedFeaturesFromText(text: string) {
       (line) =>
         line.length >= 8 &&
         line.length <= 120 &&
-        !parsePrices(line).length &&
+        !parsePrices(line, { section: "pricing_card" }).length &&
         !contactPattern.test(line) &&
         !ctaPattern.test(line) &&
         !pricingContextPattern.test(line),
@@ -298,17 +324,23 @@ function planFromText({
   section: string;
   cta: string | null;
 }): PricingPlanModel | null {
-  const prices = parsePrices(text);
+  const prices = parsePrices(text, { section });
   const hasContact = contactPattern.test(text);
 
   if (!prices.length && !hasContact) {
     return null;
   }
 
-  const price = prices[0];
+  const detectedPrice = prices[0];
   const name = hasContact && !prices.length
     ? planNameFromText(text, "Enterprise")
     : planNameFromText(text, fallback);
+  const isFreePlan = Boolean(name && /^free$/i.test(name));
+  const price = isFreePlan && detectedPrice?.amount !== 0 ? null : detectedPrice;
+
+  if (!name) {
+    return null;
+  }
   const limit = limitFromText(text);
   const isEnterprise = /enterprise|custom/i.test(`${name} ${text}`);
   const isCustom = hasContact && !prices.length;
@@ -324,7 +356,7 @@ function planFromText({
   return {
     id: sentenceCaseKey(`${name}-${price?.raw ?? "custom"}-${limit ?? ""}`),
     name,
-    price: price?.amount ?? null,
+    price: isFreePlan ? 0 : price?.amount ?? null,
     currency: price?.currency ?? null,
     billing_period: price?.billing_period ?? "unknown",
     billing_mode: isCustom
@@ -353,7 +385,7 @@ function usageTierFromText({
   index: number;
   section: string;
 }): PricingUsageTierModel | null {
-  const price = parsePrices(text)[0] ?? null;
+  const price = parsePrices(text, { section })[0] ?? null;
   const limit = limitFromText(text);
   const isContactTier = contactPattern.test(text) && Boolean(limit);
 
@@ -390,7 +422,7 @@ function parseTableStructures($: cheerio.CheerioAPI, sourceUrl: string) {
           .filter(Boolean);
         const rowText = cells.length ? cells.join(" ") : normalizeText($(row).text());
 
-        if (!rowText || !pricingContextPattern.test(rowText) && !parsePrices(rowText).length && !contactPattern.test(rowText)) {
+        if (!rowText || !pricingContextPattern.test(rowText) && !parsePrices(rowText, { section: "pricing_table" }).length && !contactPattern.test(rowText)) {
           return;
         }
 
@@ -443,13 +475,13 @@ function parseCardStructures($: cheerio.CheerioAPI, sourceUrl: string) {
     if (
       text.length < 8 ||
       text.length > 1800 ||
-      (!parsePrices(text).length && !contactPattern.test(text)) ||
+      (!parsePrices(text, { section: "pricing_card" }).length && !contactPattern.test(text)) ||
       (!pricingContextPattern.test(text) && !planNamePattern.test(text))
     ) {
       return;
     }
 
-    const priceCount = parsePrices(text).length;
+    const priceCount = parsePrices(text, { section: "pricing_card" }).length;
 
     if (priceCount > 4 && !$(element).is("dialog,[role='dialog'],[class*='modal'],[id*='modal']")) {
       return;
@@ -495,7 +527,7 @@ function parseHeadingPlanStructures($: cheerio.CheerioAPI, sourceUrl: string) {
         return (
           text.length >= 12 &&
           text.length <= 2200 &&
-          (parsePrices(text).length ||
+          (parsePrices(text, { section: "pricing_card" }).length ||
             contactPattern.test(text) ||
             /price\(currency,\s*volumeIndex/i.test(html))
         );
@@ -788,7 +820,7 @@ export function parsePricingStructure({
     [...tableStructures.tiers, ...scriptStructures.tiers, ...parseLineUsageTiers(lines, sourceUrl)],
     (tier) => `${tier.limit}:${tier.price ?? "contact"}:${tier.currency ?? ""}`,
   ).slice(0, 40);
-  const plans = uniqueBy(
+  const rawPlans = uniqueBy(
     [
       ...tableStructures.plans,
       ...cardPlans,
@@ -798,6 +830,11 @@ export function parsePricingStructure({
     ],
     (plan) =>
       `${sentenceCaseKey(plan.name)}:${plan.price ?? "custom"}:${plan.currency ?? ""}:${plan.billing_period}:${plan.limits.join("|")}`,
+  );
+  const planNeedsReview = rawPlans.length > 6 && tableStructures.plans.length < 6;
+  const plans = (planNeedsReview
+    ? rawPlans.filter((plan) => plan.confidence === "high").slice(0, 6)
+    : rawPlans
   ).slice(0, 30);
   const billingModes = uniqueBy(
     [
@@ -823,6 +860,7 @@ export function parsePricingStructure({
     /\b(?:slider|calculator|pageviews?)\b/i.test(fullText) && usageTiers.length < 3
       ? "usage_slider_current_tier_only_or_hidden"
       : null,
+    planNeedsReview ? "pricing_needs_review" : null,
   ].filter((item): item is string => Boolean(item));
   const hasPricingContent =
     pageType === "pricing" ||

@@ -14,7 +14,20 @@ import {
 } from "@/lib/stripe";
 import { createClient } from "@/lib/supabase/server";
 
-async function createCheckoutSessionAction(priceId: string) {
+function optionalPriceId(getter: () => string) {
+  try {
+    return getter();
+  } catch (error) {
+    console.error("Stripe checkout price is unavailable.", { error });
+    return null;
+  }
+}
+
+async function createCheckoutSessionAction(priceId: string | null) {
+  if (!priceId) {
+    redirect("/pricing?billing=unavailable");
+  }
+
   const user = await getCurrentUser();
 
   if (!user) {
@@ -38,7 +51,15 @@ async function createCheckoutSessionAction(priceId: string) {
     throw new Error(error.message);
   }
 
-  const stripe = getStripe();
+  let stripe: ReturnType<typeof getStripe>;
+
+  try {
+    stripe = getStripe();
+  } catch (error) {
+    console.error("Stripe checkout is unavailable.", { error });
+    redirect("/pricing?billing=unavailable");
+  }
+
   let customerId = profile?.billing_customer_id ?? null;
 
   if (!customerId) {
@@ -88,19 +109,19 @@ async function createCheckoutSessionAction(priceId: string) {
 }
 
 export async function createProCheckoutSessionAction() {
-  return createCheckoutSessionAction(getProPriceId());
+  return createCheckoutSessionAction(optionalPriceId(getProPriceId));
 }
 
 export async function createAnnualProCheckoutSessionAction() {
-  return createCheckoutSessionAction(getAnnualProPriceId());
+  return createCheckoutSessionAction(optionalPriceId(getAnnualProPriceId));
 }
 
 export async function createBusinessCheckoutSessionAction() {
-  return createCheckoutSessionAction(getBusinessPriceId());
+  return createCheckoutSessionAction(optionalPriceId(getBusinessPriceId));
 }
 
 export async function createAnnualBusinessCheckoutSessionAction() {
-  return createCheckoutSessionAction(getAnnualBusinessPriceId());
+  return createCheckoutSessionAction(optionalPriceId(getAnnualBusinessPriceId));
 }
 
 export async function createBillingPortalSessionAction() {
@@ -126,7 +147,16 @@ export async function createBillingPortalSessionAction() {
   }
 
   const appUrl = getAppUrl(await headers());
-  const session = await getStripe().billingPortal.sessions.create({
+  let stripe: ReturnType<typeof getStripe>;
+
+  try {
+    stripe = getStripe();
+  } catch (error) {
+    console.error("Stripe billing portal is unavailable.", { error });
+    redirect("/pricing?billing=unavailable");
+  }
+
+  const session = await stripe.billingPortal.sessions.create({
     customer: profile.billing_customer_id,
     return_url: `${appUrl}/dashboard/settings`,
   });

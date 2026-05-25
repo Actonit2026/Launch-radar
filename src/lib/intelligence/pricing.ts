@@ -16,6 +16,11 @@ import {
   textLines,
   uniqueBy,
 } from "@/lib/intelligence/text";
+import {
+  classifyPricingContext,
+  hasReliablePricingPlanLabel,
+  parsePriceAmount,
+} from "@/lib/intelligence/pricing-context";
 
 type PriceCandidate = {
   rawText: string;
@@ -48,10 +53,14 @@ const currencyByCode: Record<string, NormalizedPrice["currency"]> = {
   gbp: "GBP",
 };
 
-const pricePatterns = [
-  /([$\u20AC\u00A3]|â‚¬|Â£)\s?(\d{1,5}(?:[.,]\d{1,2})?)/gi,
-  /(\d{1,5}(?:[.,]\d{1,2})?)\s?([$\u20AC\u00A3]|â‚¬|Â£)/gi,
-  /(?:(usd|eur|gbp)\s?(\d{1,5}(?:[.,]\d{1,2})?)|(\d{1,5}(?:[.,]\d{1,2})?)\s?(usd|eur|gbp))/gi,
+const strictAmountPattern = String.raw`(?:\d{1,3}(?:[,\s]\d{3})+(?:[.,]\d{1,2})?|\d{1,5}(?:[.,]\d{1,2})?)`;
+const strictPricePatterns = [
+  new RegExp(`([$\\u20AC\\u00A3]|Ã¢â€šÂ¬|Ã‚Â£)\\s?(${strictAmountPattern})`, "gi"),
+  new RegExp(`(${strictAmountPattern})\\s?([$\\u20AC\\u00A3]|Ã¢â€šÂ¬|Ã‚Â£)`, "gi"),
+  new RegExp(
+    `(?:(usd|eur|gbp)\\s?(${strictAmountPattern})|(${strictAmountPattern})\\s?(usd|eur|gbp))`,
+    "gi",
+  ),
 ];
 const freePattern =
   /\b(?:free forever|free plan|free tier|free trial|start free|free)\b/i;
@@ -78,24 +87,8 @@ const dateRejectPattern =
   /\b(?:founded|since|copyright|updated|published|released|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|20\d{2}|19\d{2})\b/i;
 const footerLegalPattern =
   /\b(?:privacy|terms|legal|cookie|copyright|all rights reserved)\b/i;
-const testimonialPattern =
+const testimonialPenaltyPattern =
   /\b(?:testimonial|customer story|case study|review|rated|stars)\b/i;
-const exampleContentPattern =
-  /\b(?:example|sample|template|generated output|generated proposal|proposal sample|sample proposal)\b/i;
-const jobBudgetPattern =
-  /\b(?:job|salary|budget|freelance|freelancer|contractor|hiring|client project|project budget|hourly|per hour|\/\s?hr|\bhr\b|upwork)\b/i;
-const articleBudgetPattern =
-  /\b(?:article|blog post|copywriting|content budget|per article)\b/i;
-const faqPattern =
-  /\b(?:faq|frequently asked|question|answer)\b/i;
-const verifiedPricingStructurePattern =
-  /\b(?:pricing table|pricing card|plan card|plans?|billing toggle|upgrade|subscription|checkout|choose plan|monthly|yearly|annually|get plus|get pro|get business|start free|buy now)\b/i;
-const productPricingIntentPattern =
-  /\b(?:pricing|price|billing|subscription|pricing table|pricing card|plan card|choose plan|get plus|get pro|get business|upgrade|subscribe|checkout|start free|buy now)\b/i;
-
-function parseAmount(value: string) {
-  return Number(value.replace(",", "."));
-}
 
 function normalizedCurrency(symbolOrCode: string) {
   return (
@@ -134,7 +127,7 @@ function planForContext(context: string, heading?: string | null) {
   }
 
   return heading &&
-    heading.length <= 48 &&
+    hasReliablePricingPlanLabel(heading) &&
     planPattern.test(heading) &&
     !/^free$/i.test(heading.trim())
     ? heading.trim()
@@ -256,7 +249,7 @@ function scoreCandidate({
     reasons.push("footer_legal_penalty");
   }
 
-  if (testimonialPattern.test(context) && !pricingContextPattern.test(context)) {
+  if (testimonialPenaltyPattern.test(context) && !pricingContextPattern.test(context)) {
     score -= 20;
     reasons.push("testimonial_penalty");
   }
@@ -267,66 +260,6 @@ function scoreCandidate({
   }
 
   return { score: boundedScore(score), reasons };
-}
-
-function verifiedPricingContext({
-  context,
-  section,
-  pageType,
-}: {
-  context: string;
-  section: PageBlockType;
-  pageType: PageType;
-}) {
-  const strongVerified =
-    verifiedPricingStructurePattern.test(context) ||
-    ctaContextPattern.test(context) ||
-    (pricingContextPattern.test(context) && planPattern.test(context));
-  const contaminated =
-    jobBudgetPattern.test(context) ||
-    articleBudgetPattern.test(context) ||
-    exampleContentPattern.test(context) ||
-    testimonialPattern.test(context);
-
-  if (contaminated && !productPricingIntentPattern.test(context)) {
-    return false;
-  }
-
-  return (
-    section === "pricing" ||
-    pageType === "pricing" ||
-    strongVerified
-  );
-}
-
-function priceContextClassification({
-  context,
-  section,
-  pageType,
-}: {
-  context: string;
-  section: PageBlockType;
-  pageType: PageType;
-}) {
-  const verifiedPricing = verifiedPricingContext({ context, section, pageType });
-
-  if (!verifiedPricing) {
-    if (jobBudgetPattern.test(context)) return "job_budget";
-    if (articleBudgetPattern.test(context)) return "article_budget";
-    if (exampleContentPattern.test(context)) return "example_content";
-    if (testimonialPattern.test(context)) return "testimonial";
-    if (faqPattern.test(context)) return "faq";
-  }
-
-  if (verifiedPricing) {
-    return "product_pricing";
-  }
-
-  if (pricingContextPattern.test(context)) {
-    return "unknown";
-  }
-
-  return "unknown";
 }
 
 function candidateDebug(
@@ -364,7 +297,7 @@ function candidatesFromContext({
 }) {
   const candidates: PriceCandidate[] = [];
 
-  for (const pattern of pricePatterns) {
+  for (const pattern of strictPricePatterns) {
     pattern.lastIndex = 0;
 
     for (const match of context.matchAll(pattern)) {
@@ -387,7 +320,7 @@ function candidatesFromContext({
       const amountText =
         normalizedCurrency(first ?? "") ? second : normalizedCurrency(second ?? "") ? first : second ?? third;
       const currency = currencyText ? normalizedCurrency(currencyText) : null;
-      const amount = amountText ? parseAmount(amountText) : Number.NaN;
+      const amount = amountText ? parsePriceAmount(amountText) : Number.NaN;
 
       if (!currency || !Number.isFinite(amount)) {
         continue;
@@ -399,14 +332,14 @@ function candidatesFromContext({
         pageType,
         rawText: match[0],
       });
-      const classification = priceContextClassification({
-        context: immediateContext || localContext,
+      const classified = classifyPricingContext({
+        text: immediateContext || localContext,
         section,
         pageType,
       });
       const rejected =
-        classification !== "product_pricing"
-          ? `non_product_pricing_${classification}`
+        !classified.accepted
+          ? classified.rejectionReason ?? "non_product_pricing_unknown"
           : scoring.score < 35
           ? "confidence_below_threshold"
           : amount <= 0
@@ -424,8 +357,11 @@ function candidatesFromContext({
         context: localContext,
         section,
         score: scoring.score,
-        reasons: [...scoring.reasons, `classification:${classification}`],
-        classification,
+        reasons: [
+          ...scoring.reasons,
+          `classification:${classified.classification}`,
+        ],
+        classification: classified.classification,
         rejected,
         ambiguous: scoring.score >= 35 && scoring.score < 60,
       });

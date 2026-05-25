@@ -149,8 +149,9 @@ export async function POST(request: Request) {
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
   if (!webhookSecret) {
+    console.error("Stripe webhook secret is unavailable.");
     return NextResponse.json(
-      { error: "STRIPE_WEBHOOK_SECRET is not configured." },
+      { error: "Webhook is unavailable." },
       { status: 500 },
     );
   }
@@ -158,7 +159,8 @@ export async function POST(request: Request) {
   const signature = request.headers.get("stripe-signature");
 
   if (!signature) {
-    return NextResponse.json({ error: "Missing signature." }, { status: 400 });
+    console.error("Stripe webhook request missing signature.");
+    return NextResponse.json({ error: "Invalid webhook request." }, { status: 400 });
   }
 
   let event: Stripe.Event;
@@ -170,7 +172,8 @@ export async function POST(request: Request) {
       webhookSecret,
     );
   } catch {
-    return NextResponse.json({ error: "Invalid signature." }, { status: 400 });
+    console.error("Stripe webhook signature verification failed.");
+    return NextResponse.json({ error: "Invalid webhook request." }, { status: 400 });
   }
 
   try {
@@ -209,6 +212,7 @@ export async function POST(request: Request) {
     const message =
       error instanceof Error ? error.message : "Could not process webhook.";
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("Stripe webhook processing failed.", { error: message });
+    return NextResponse.json({ error: "Could not process webhook." }, { status: 500 });
   }
 }

@@ -21,6 +21,7 @@ import type {
 } from "@/lib/intelligence/types";
 import type { ScrapedPage } from "@/lib/crawler/scraper";
 import { parsePricingStructure } from "@/lib/intelligence/pricing-structure";
+import { hasReliablePricingPlanLabel } from "@/lib/intelligence/pricing-context";
 import {
   analysisBlocks,
   blockText,
@@ -148,10 +149,15 @@ function pricingPlanFromPrice({
   fact: NonNullable<PricingAnalysis["paidPlans"][number]>;
   index: number;
   ctas: CtaAnalysis;
-}): PricingPlanModel {
+}): PricingPlanModel | null {
   const normalized = fact.normalized_value;
   const evidence = evidenceFromFact(fact, "pricing");
   const name = normalized?.plan ?? detectPlanName(fact.evidence_text, "Public pricing");
+
+  if (!hasReliablePricingPlanLabel(name)) {
+    return null;
+  }
+
   const billingType =
     normalized?.unit === "user" || normalized?.unit === "seat"
       ? "seat_based"
@@ -296,9 +302,9 @@ export function extractPricingModel({
 }): PricingModel {
   const structured = parsePricingStructure({ scrape, pageType });
   const sourceUrl = scrape.finalUrl;
-  const plans = pricing.paidPlans.map((fact, index) =>
-    pricingPlanFromPrice({ fact, index, ctas }),
-  );
+  const plans = pricing.paidPlans
+    .map((fact, index) => pricingPlanFromPrice({ fact, index, ctas }))
+    .filter((plan): plan is PricingPlanModel => Boolean(plan));
 
   if (pricing.freePlan) {
     plans.unshift({

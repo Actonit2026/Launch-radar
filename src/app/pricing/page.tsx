@@ -38,6 +38,10 @@ export default async function PricingPage() {
     : { data: null };
   const isPro = profile?.plan === "pro" || profile?.plan === "business";
   const isBusiness = profile?.plan === "business";
+  const proUnavailableCopy =
+    "Pro checkout is not available yet. You can keep using the free baseline while billing opens.";
+  const businessUnavailableCopy =
+    "Business is coming soon for larger monitoring programs.";
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-5xl flex-col gap-8 px-6 py-12">
@@ -83,9 +87,11 @@ export default async function PricingPage() {
           </div>
           <p className="mt-3 text-4xl font-semibold text-ink">EUR 19</p>
           <p className="mt-2 text-sm text-ink/55">per month</p>
-          <p className="mt-2 rounded-md bg-moss/10 px-3 py-2 text-sm font-semibold text-moss">
-            Annual: EUR 180/year, shown as EUR 15/month billed annually.
-          </p>
+          {annualReady ? (
+            <p className="mt-2 rounded-md bg-moss/10 px-3 py-2 text-sm font-semibold text-moss">
+              Annual: EUR 180/year, shown as EUR 15/month billed annually.
+            </p>
+          ) : null}
           <ul className="mt-6 space-y-3 text-sm leading-6 text-ink/70">
             <li>Track up to 20 competitors</li>
             <li>12-hour refresh target</li>
@@ -124,17 +130,11 @@ export default async function PricingPage() {
                     Upgrade annually
                   </button>
                 </form>
-              ) : (
-                <p className="rounded-md bg-paper p-3 text-sm leading-6 text-ink/60">
-                  Annual checkout appears after STRIPE_PRO_ANNUAL_PRICE_ID is
-                  configured.
-                </p>
-              )}
+              ) : null}
             </div>
           ) : user ? (
             <p className="mt-6 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-              Billing is not configured yet. Add Stripe environment variables to
-              enable Pro checkout.
+              {proUnavailableCopy}
             </p>
           ) : (
             <Link
@@ -155,15 +155,21 @@ export default async function PricingPage() {
           </div>
           <p className="mt-3 text-4xl font-semibold text-ink">EUR 49</p>
           <p className="mt-2 text-sm text-ink/55">per month</p>
-          <p className="mt-2 rounded-md bg-paper px-3 py-2 text-sm font-semibold text-ink/65">
-            Annual: EUR 490/year, about two months free.
-          </p>
+          {businessAnnualReady ? (
+            <p className="mt-2 rounded-md bg-paper px-3 py-2 text-sm font-semibold text-ink/65">
+              Annual: EUR 490/year, about two months free.
+            </p>
+          ) : (
+            <p className="mt-2 rounded-md bg-paper px-3 py-2 text-sm font-semibold text-ink/65">
+              Coming soon
+            </p>
+          )}
           <ul className="mt-6 space-y-3 text-sm leading-6 text-ink/70">
             <li>Track up to 999 competitors</li>
             <li>6-hour refresh target and priority queue</li>
             <li>Up to 25 scans and product analyses per day</li>
             <li>12 browser-rendered page checks per day</li>
-            <li>AI-enhanced summaries with evidence-backed facts</li>
+            <li>Evidence-backed summaries and higher monitoring limits</li>
             <li>Weekly digest, shareable reports, and exports when available</li>
           </ul>
           {isBusiness && profile?.billing_customer_id ? (
@@ -194,25 +200,19 @@ export default async function PricingPage() {
                     Start Business annually
                   </button>
                 </form>
-              ) : (
-                <p className="rounded-md bg-paper p-3 text-sm leading-6 text-ink/60">
-                  Annual checkout appears after
-                  STRIPE_BUSINESS_ANNUAL_PRICE_ID is configured.
-                </p>
-              )}
+              ) : null}
             </div>
           ) : user ? (
             <p className="mt-6 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-              Business checkout appears after STRIPE_BUSINESS_PRICE_ID is
-              configured.
+              {businessUnavailableCopy}
             </p>
           ) : (
-            <Link
-              href="/signup"
+            <a
+              href="mailto:hello@launchradar.app?subject=LaunchRadar%20Business%20waitlist"
               className="mt-6 inline-flex h-11 w-full items-center justify-center rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-ink/90"
             >
-              Sign up for Business
-            </Link>
+              Contact us
+            </a>
           )}
         </article>
       </section>

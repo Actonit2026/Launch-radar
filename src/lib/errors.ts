@@ -1,3 +1,4 @@
 export function formatDatabaseError(message: string) {
-  return `Could not load dashboard data. Run supabase/migrations/0001_initial_schema.sql in your Supabase project, then refresh. Supabase said: ${message}`;
+  console.error("Database request failed.", { message });
+  return "Could not load the latest workspace data. Please refresh and try again.";
 }

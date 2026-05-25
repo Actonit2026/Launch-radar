@@ -582,6 +582,8 @@ function createRecommendation({
       trust: {
         confidence: score,
         confidence_label: confidenceLabel(score),
+        basis:
+          supports.length === 1 ? "one competitor" : "multiple competitors",
         actionability_score: actionabilityScore(actionability),
         impact_score: impactScore(type),
         effort_score: effortScore(type),
@@ -652,6 +654,7 @@ function createBaselineRecommendation({
       trust: {
         confidence: score,
         confidence_label: confidenceLabel(score),
+        basis: "baseline",
         actionability_score: actionabilityScore(actionability),
         impact_score: impactScore(type),
         effort_score: effortScore(type),
@@ -1004,14 +1007,11 @@ export function buildProductRecommendations(
     ctaRecommendation(input),
     positioningRecommendation(input),
   ].filter((item): item is ProductRecommendationDraft => Boolean(item));
-  const baselineRecommendations =
-    input.competitorSnapshots.length === 0
-      ? [
-          baselinePricingRecommendation(input),
-          baselineCtaRecommendation(input),
-          baselinePositioningRecommendation(input),
-        ].filter((item): item is ProductRecommendationDraft => Boolean(item))
-      : [];
+  const baselineRecommendations = [
+    baselinePricingRecommendation(input),
+    baselineCtaRecommendation(input),
+    baselinePositioningRecommendation(input),
+  ].filter((item): item is ProductRecommendationDraft => Boolean(item));
   const recommendations = [
     ...competitorRecommendations,
     ...baselineRecommendations,

@@ -14,9 +14,11 @@ import {
 const featureSignalPattern =
   /\b(?:feature|integration|workflow|automation|automated|dashboard|dashboards|analytics|report|summary|summaries|api|security|sso|export|import|collaboration|template|templates|webhook|webhooks|alerts|search|sync|permissions|roles|tracking|monitoring|proposal|proposals|generator|generation|voice|personalization|personalized|writing sample|matching|runbook|runbooks|escalation|escalations|status page|editor|session replay|replay|funnels?|heatmaps?|cohorts?|segmentation|experimentation|a\/b testing|feature flags?|feature management|autocapture|events?|data warehouse|web analytics|product analytics|revenue analytics|survey|surveys|traces?|evals?|graphs?|lifecycle|user paths?|activation|visual editing|edit visually|design|database|logic|privacy rules?|no-code app builder|build with ai)\b/i;
 const rejectedFeaturePattern =
-  /\b(?:pricing|price|free|contact sales|book a demo|sign up|get started|start free|start trial|privacy|terms|cookie|copyright|learn more|live demo|view demo|copy to clipboard|testimonial|customer story|case study|co-founder|founder|ceo|cto|people love|trusted by|customer logos?|logo cloud|rated|stars?|g2|capterra|award|press)\b/i;
+  /\b(?:pricing|price|free|contact sales|book a demo|sign up|get started|start free|start trial|get your first|privacy|terms|cookie|copyright|learn more|live demo|view demo|copy to clipboard|testimonial|customer story|case study|co-founder|founder|ceo|cto|people love|trusted by|customer logos?|logo cloud|rated|stars?|g2|capterra|award|press)\b/i;
 const softRejectedFeaturePattern =
   /\b(?:review|rated|stars|former .* lead|people .{0,4} love|ready to|join us|why you should|it'?s time to)\b/i;
+const hardRejectedFeaturePattern =
+  /^(?:features?|capabilities|benefits?|what you can do|get your first .+|start .+|sign up .+|book .+|try .+)$/i;
 const featureSectionPattern =
   /\b(?:features?|capabilities|platform|product|benefits?|included|compare|comparison|feature grid|what you can do|everything you need|built for)\b/i;
 const capabilityTermPattern =
@@ -41,6 +43,7 @@ function featureNameFromLine(line: string) {
     cleaned.length > 90 ||
     /^\d{4}(?:-\d{4})?$/.test(cleaned) ||
     /^(?:import|const|function|npm|curl)\b/i.test(cleaned) ||
+    hardRejectedFeaturePattern.test(cleaned) ||
     softRejectedFeaturePattern.test(cleaned) ||
     (rejectedFeaturePattern.test(cleaned) && !featureSignalPattern.test(cleaned))
   ) {
@@ -48,6 +51,28 @@ function featureNameFromLine(line: string) {
   }
 
   return cleaned;
+}
+
+function normalizedFeatureName(name: string, evidence: string) {
+  const text = `${name} ${evidence}`.toLowerCase();
+
+  if (/\b(?:voice|tone|writing style|sounds like you|in your voice)\b/.test(text)) {
+    return "Voice-matched proposal generation";
+  }
+
+  if (/\b(?:writing sample|sample analysis|analy[sz]e your writing)\b/.test(text)) {
+    return "Writing sample analysis";
+  }
+
+  if (/\b(?:fast|minutes?|seconds?|quickly|proposal generator|generate .*proposal)\b/.test(text)) {
+    return "Fast proposal creation";
+  }
+
+  if (/\b(?:personaliz|client brief|job post|freelancer|tailor)\b/.test(text)) {
+    return "Freelancer proposal personalization";
+  }
+
+  return name;
 }
 
 function descriptionForFeature(lines: string[], index: number) {
@@ -241,6 +266,7 @@ export function analyzeFeatures(
     }
 
     const description = descriptionForFeature(lines, index);
+    const normalizedName = normalizedFeatureName(name, description ? `${line} ${description}` : line);
     const confidence = featureConfidence({
       pageType,
       line,
@@ -251,9 +277,9 @@ export function analyzeFeatures(
     candidates.push(
       makeFact({
         field: "feature",
-        value: featureValue({ name, description }),
+        value: featureValue({ name: normalizedName, description }),
         normalizedValue: {
-          name,
+          name: normalizedName,
           ...(description ? { description } : {}),
         },
         confidence: confidence.confidence,

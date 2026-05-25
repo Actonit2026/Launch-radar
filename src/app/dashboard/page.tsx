@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { signOutAction } from "@/app/auth/actions";
 import { AddCompetitorDialog } from "@/components/add-competitor-dialog";
 import { ChangeCard } from "@/components/change-card";
 import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
@@ -27,22 +26,22 @@ export const metadata = {
 
 function setupStatusText(competitor: DashboardCompetitor) {
   if (competitor.scan_status === "failed") {
-    return `Scan failed. ${
+    return `Needs attention. ${
       competitor.last_scan_error ?? "Retry when the website is reachable."
     }`;
   }
 
   if (competitor.scan_status === "running") {
-    return "Understanding public pages and preparing verified insight...";
+    return "Scan in progress. Validating public pages and extracting verified facts.";
   }
 
   if (competitor.lastCheckedAt) {
-    return `Baseline created. Last scanned ${formatDateTime(
+    return `Baseline created - waiting for next scan. Last updated ${formatDateTime(
       competitor.lastCheckedAt,
-    )}. Snapshot pending.`;
+    )}. Free refresh target is weekly.`;
   }
 
-  return "Setting up your first scan...";
+  return "Scan in progress. Setting up the first baseline.";
 }
 
 function addHours(value: string, hours: number) {
@@ -337,11 +336,6 @@ export default async function DashboardPage() {
           >
             Settings
           </Link>
-          <form action={signOutAction}>
-            <button className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-ink/90">
-              Sign out
-            </button>
-          </form>
         </div>
       </section>
 

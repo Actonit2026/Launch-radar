@@ -59,6 +59,7 @@ export type CompetitorDetail = {
   changes: Array<DetectedChange & { page: MonitoredPage }>;
   latestIntelligence: IntelligenceSnapshotView | null;
   debugLogs: ScanDebugLogView[];
+  canViewDebug: boolean;
 };
 
 type DataResult<T> = {
@@ -385,12 +386,15 @@ export async function getCompetitorDetail(
     return { data: null, error: formatDatabaseError(intelligenceError.message) };
   }
 
-  const { data: debugLogs, error: debugLogsError } = await supabase
-    .from("scan_debug_logs")
-    .select("*")
-    .eq("competitor_id", competitor.id)
-    .order("created_at", { ascending: false })
-    .limit(5);
+  const canViewDebug = isMasterAdminEmail(user.email);
+  const { data: debugLogs, error: debugLogsError } = canViewDebug
+    ? await supabase
+        .from("scan_debug_logs")
+        .select("*")
+        .eq("competitor_id", competitor.id)
+        .order("created_at", { ascending: false })
+        .limit(5)
+    : { data: [], error: null };
 
   if (debugLogsError) {
     return { data: null, error: formatDatabaseError(debugLogsError.message) };
@@ -403,6 +407,7 @@ export async function getCompetitorDetail(
       changes: changesWithPages,
       latestIntelligence: parseIntelligenceSnapshot(intelligenceSnapshot),
       debugLogs: parseDebugLogs(debugLogs ?? []),
+      canViewDebug,
     },
   };
 }

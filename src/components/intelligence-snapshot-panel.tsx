@@ -155,9 +155,6 @@ function PricingExperienceSection({
     display.billingModes.length
       ? `Billing: ${display.billingModes.join(", ")}`
       : null,
-    typeof display.pricingCompleteness === "number"
-      ? `${display.pricingCompleteness}/100 parsed`
-      : null,
   ].filter(Boolean);
 
   return (
@@ -395,23 +392,21 @@ function ScanQualityDetails({
             : "Limited scan"}
       </p>
       <p className="mt-1">{quality.confidence_impact}</p>
-      {typeof quality.time_to_useful_insight_ms === "number" ? (
+      {quality.successful_pages || quality.failed_pages ? (
         <p className="mt-2">
-          Useful insight after {quality.time_to_useful_insight_ms}ms. Full
-          target: {quality.dashboard_complete_target_ms}ms.
+          Analyzed {quality.successful_pages} page
+          {quality.successful_pages === 1 ? "" : "s"}
+          {quality.failed_pages
+            ? `; ${quality.failed_pages} page${
+                quality.failed_pages === 1 ? "" : "s"
+              } could not be retrieved.`
+            : "."}
         </p>
-      ) : null}
-      {quality.completed.length ? (
-        <p className="mt-2">
-          Completed: {quality.completed.slice(0, 5).join(", ")}.
-        </p>
-      ) : null}
-      {quality.skipped.length ? (
-        <p className="mt-1">Skipped: {quality.skipped.slice(0, 5).join(", ")}.</p>
       ) : null}
       {pendingStages.length ? (
         <p className="mt-1">
-          Still scanning: {pendingStages.map((stage) => stage.message).join(" ")}
+          Some deeper signals are still limited; the visible snapshot uses
+          verified public evidence only.
         </p>
       ) : null}
     </div>
@@ -437,10 +432,7 @@ export function IntelligenceSnapshotPanel({
     <div className={compact ? "mt-4 border-t border-ink/10 pt-4" : ""}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="rounded-full bg-moss/10 px-3 py-1 text-xs font-semibold text-moss">
-          Baseline created
-        </span>
-        <span className="rounded-full bg-moss/10 px-3 py-1 text-xs font-semibold text-moss">
-          Snapshot ready
+          Intelligence snapshot ready
         </span>
         <span className="rounded-full bg-paper px-3 py-1 text-xs font-semibold text-ink/60">
           {display.pagesAnalyzed} pages analyzed

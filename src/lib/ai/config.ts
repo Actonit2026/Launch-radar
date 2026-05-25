@@ -1,8 +1,8 @@
 import OpenAI from "openai";
 
-export const OPENAI_NOT_CONFIGURED_ERROR = "OPENAI_API_KEY is not configured.";
+export const OPENAI_NOT_CONFIGURED_ERROR = "OpenAI summary generation is unavailable.";
 export const AI_SUMMARY_UNAVAILABLE_MESSAGE =
-  "AI summary unavailable. Showing deterministic analysis.";
+  "Deterministic analysis shown. AI enhancement is disabled for this plan.";
 
 export function aiSummariesEnabled() {
   return process.env.ENABLE_AI_SUMMARIES !== "false";

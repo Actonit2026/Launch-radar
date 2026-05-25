@@ -497,12 +497,18 @@ function pricingOptions(snapshot: IntelligenceSnapshotView): PricingOptionView[]
       fact,
     }),
   );
-  const options = uniquePricingOptions([
+  const structuredOptions = uniquePricingOptions([
     ...planOptions,
     ...usageOptions,
     ...freeOptions,
-    ...priceOptions,
     ...contactOptions,
+  ]);
+  if (structuredOptions.length) {
+    return structuredOptions;
+  }
+
+  const options = uniquePricingOptions([
+    ...priceOptions,
   ]);
 
   if (options.length) {
@@ -742,7 +748,27 @@ function displayWarnings({
   features: { status: "found" | "unavailable" };
   changelog: IntelligenceSectionView;
 }) {
-  return Array.from(new Set(warnings)).filter((warning) => {
+  const sanitized = warnings.map((warning) => {
+    if (/openai|api key|api_key|ai summary unavailable/i.test(warning)) {
+      return "Deterministic analysis shown. AI enhancement is disabled for this plan.";
+    }
+
+    if (/http\s?(?:401|403)|unauthori[sz]ed|forbidden|blocked/i.test(warning)) {
+      return "Some pages could not be retrieved.";
+    }
+
+    if (/stack|trace|raw json|route|secret|env|supabase|stripe|token|timing|budget|ms\b/i.test(warning)) {
+      return "Scan completed with limited coverage.";
+    }
+
+    if (/pricing debug|rejected/i.test(warning)) {
+      return "Some pricing-like text was ignored because it did not look like product pricing.";
+    }
+
+    return warning;
+  });
+
+  return Array.from(new Set(sanitized)).filter((warning) => {
     if (
       pricing.status === "found" &&
       /no (?:reliable )?public pricing(?: block)? detected/i.test(warning)

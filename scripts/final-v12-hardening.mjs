@@ -290,9 +290,9 @@ try {
   });
 
   check("Admin access is env-only and fails closed", () => {
-    assert.equal(isMasterAdminEmail("prop.alpha@proton.me"), false);
-    process.env.MASTER_ADMIN_EMAILS = "prop.alpha@proton.me";
-    assert.equal(isMasterAdminEmail("prop.alpha@proton.me"), true);
+    assert.equal(isMasterAdminEmail("admin@example.com"), false);
+    process.env.MASTER_ADMIN_EMAILS = "admin@example.com";
+    assert.equal(isMasterAdminEmail("admin@example.com"), true);
   });
 
   check("Stripe unknown price IDs do not default to Pro", () => {

@@ -19,6 +19,7 @@ type RecommendationTrust = {
   visibility?: string;
   recommendation_value_score?: number;
   recommendation_value_tier?: string;
+  basis?: string;
   consensus?: {
     supporting_competitors?: number;
     required_competitors?: number;
@@ -146,24 +147,16 @@ export function ProductRecommendationsPanel({
   recommendations,
   competitorCount,
 }: ProductRecommendationsPanelProps) {
-  if (!competitorCount) {
-    return (
-      <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
-        <h2 className="text-xl font-semibold text-ink">Recommendations</h2>
-        <p className="mt-3 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-          Add competitors to unlock comparison recommendations.
-        </p>
-      </div>
-    );
-  }
-
   if (!recommendations.length) {
+    const reason = competitorCount
+      ? "Current evidence is either too weak, too generic, or unchanged to justify a high-confidence next action."
+      : "Add your product baseline or track competitors to create enough verified evidence.";
+
     return (
       <div className="rounded-lg border border-ink/10 bg-white p-6 shadow-soft">
         <h2 className="text-xl font-semibold text-ink">Recommendations</h2>
         <p className="mt-3 rounded-md bg-paper p-4 text-sm leading-6 text-ink/65">
-          No strong recommendations available yet. Add more competitors or wait
-          for more changes.
+          No strong recommendation yet. {reason}
         </p>
       </div>
     );
@@ -203,6 +196,11 @@ export function ProductRecommendationsPanel({
                 <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink/55">
                   {recommendation.actionability} actionability
                 </span>
+                {evidence.trust?.basis ? (
+                  <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink/55">
+                    {evidence.trust.basis.replace("_", " ")}
+                  </span>
+                ) : null}
                 {typeof evidence.trust?.priority_score === "number" ? (
                   <span className="rounded-full bg-paper px-2.5 py-1 text-[11px] font-semibold text-ink/55">
                     {evidence.trust.priority_score}/100 priority

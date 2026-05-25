@@ -17,6 +17,7 @@
     "test:v10:quality": "node scripts/final-v10-quality.mjs",
     "test:v11:pricing": "node scripts/final-v11-pricing.mjs",
     "test:v12:hardening": "node scripts/final-v12-hardening.mjs",
+    "test:v13:private-beta": "node scripts/final-v13-private-beta.mjs",
     "report:v9": "node scripts/final-v9-generate-reports.mjs",
     "prelaunch:scorecard": "node scripts/prelaunch-scorecard.mjs"
   },

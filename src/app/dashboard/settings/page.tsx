@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { signOutAction } from "@/app/auth/actions";
 import { createBillingPortalSessionAction } from "@/app/pricing/actions";
 import { SetupNeeded } from "@/components/setup-needed";
 import { getCurrentUser } from "@/lib/auth";
@@ -75,11 +74,6 @@ export default async function SettingsPage() {
             >
               Reset password
             </Link>
-            <form action={signOutAction}>
-              <button className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-4 text-sm font-semibold text-white transition hover:bg-ink/90">
-                Sign out
-              </button>
-            </form>
           </div>
         </article>
 

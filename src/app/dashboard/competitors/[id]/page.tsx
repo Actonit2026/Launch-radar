@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { signOutAction } from "@/app/auth/actions";
 import { ChangeCard } from "@/components/change-card";
 import { DeleteCompetitorButton } from "@/components/delete-competitor-button";
 import { IntelligenceSnapshotPanel } from "@/components/intelligence-snapshot-panel";
@@ -83,23 +82,23 @@ export default async function CompetitorDetailPage({
     notFound();
   }
 
-  const { competitor, pages, changes, latestIntelligence, debugLogs } =
+  const { competitor, pages, changes, latestIntelligence, debugLogs, canViewDebug } =
     result.data;
   const intelligence = buildIntelligenceDisplay(latestIntelligence);
   const latestPageCheck = latestCheckedAt(pages);
   const helpActions = manualHelpActions(intelligence);
   const setupStatus =
     competitor.scan_status === "failed"
-      ? `Scan failed. ${
+      ? `Needs attention. ${
           competitor.last_scan_error ?? "Retry when the website is reachable."
         }`
       : competitor.scan_status === "running"
-        ? "Setting up your first scan..."
+        ? "Scan in progress. Validating public pages and extracting verified facts."
         : latestPageCheck
-          ? `Baseline created. Last scanned ${formatDateTime(
+          ? `Baseline created - waiting for next scan. Last updated ${formatDateTime(
               latestPageCheck,
-            )}. Snapshot pending.`
-          : "Setting up your first scan...";
+            )}. Free refresh target is weekly.`
+          : "Scan in progress. Setting up the first baseline.";
 
   return (
     <main className="mx-auto flex min-h-[calc(100vh-72px)] w-full max-w-5xl flex-col gap-8 px-6 py-10">
@@ -132,11 +131,6 @@ export default async function CompetitorDetailPage({
             competitorId={competitor.id}
             redirectTo="/dashboard"
           />
-          <form action={signOutAction}>
-            <button className="inline-flex h-11 items-center justify-center rounded-md bg-ink px-5 text-sm font-semibold text-white transition hover:bg-ink/90">
-              Sign out
-            </button>
-          </form>
         </div>
       </section>
 
@@ -187,7 +181,7 @@ export default async function CompetitorDetailPage({
         </div>
       </section>
 
-      <ScanDebugPanel logs={debugLogs} />
+      {canViewDebug ? <ScanDebugPanel logs={debugLogs} /> : null}
 
       <section className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
         <div className="rounded-lg border border-ink/10 bg-white p-5">
