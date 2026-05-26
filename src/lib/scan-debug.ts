@@ -246,6 +246,7 @@ export function buildInitialSetupDebugPayload({
   intelligencePages,
   summary,
   scanQuality,
+  analyzerV3Shadow,
   result,
 }: {
   baseUrl: string;
@@ -255,6 +256,7 @@ export function buildInitialSetupDebugPayload({
   intelligencePages: PageIntelligence[];
   summary: IntelligenceSummaryResult | null;
   scanQuality?: ScanQualitySummary | null;
+  analyzerV3Shadow?: unknown;
   result: {
     pagesCreated: number;
     snapshotsCreated: number;
@@ -291,6 +293,7 @@ export function buildInitialSetupDebugPayload({
           output: compactSummary(summary),
         }
       : null,
+    analyzer_v3_shadow: analyzerV3Shadow ?? null,
     scan_quality: scanQuality ?? null,
     result,
   };
@@ -302,6 +305,7 @@ export function buildManualAnalysisDebugPayload({
   intelligencePages,
   summary,
   scanQuality,
+  analyzerV3Shadow,
   result,
 }: {
   monitoredPages: MonitoredPage[];
@@ -309,6 +313,7 @@ export function buildManualAnalysisDebugPayload({
   intelligencePages: PageIntelligence[];
   summary: IntelligenceSummaryResult | null;
   scanQuality?: ScanQualitySummary | null;
+  analyzerV3Shadow?: unknown;
   result: {
     pagesAnalyzed: number;
     intelligenceSnapshotCreated: boolean;
@@ -345,6 +350,7 @@ export function buildManualAnalysisDebugPayload({
           output: compactSummary(summary),
         }
       : null,
+    analyzer_v3_shadow: analyzerV3Shadow ?? null,
     scan_quality: scanQuality ?? null,
     result,
   };

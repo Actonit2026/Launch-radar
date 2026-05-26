@@ -1,0 +1,30 @@
+{
+  "project_id": "mxieyhfixqxwhlvtkrzc",
+  "checked_at": "2026-05-27",
+  "mode": "read_only_supabase_mcp",
+  "page_flags": {
+    "monitored_page_count": 20,
+    "malformed_or_tracking_pages": 1,
+    "finding": "https://www.notion.com/product/dev?utm_source=podcasts&utm_medium=changelog"
+  },
+  "snapshot_flags": {
+    "snapshot_count": 42,
+    "null_structured_facts": 0,
+    "valid_without_facts": 0,
+    "low_confidence_lowest_prices": 0
+  },
+  "change_flags": {
+    "detected_change_count": 12,
+    "low_confidence_changes": 10,
+    "utm_changes": 0,
+    "raw_or_percent_changes": 0
+  },
+  "recent_competitor_state": {
+    "latest_v3_valid_analyzed_pages": 0,
+    "note": "Analyzer V3 is implemented and shadow-capable but not enabled as the default production analyzer."
+  },
+  "quarantine_status": {
+    "code_level_quarantine": "Active through V14/V3 validity and confidence gates.",
+    "physical_data_quarantine": "Not mutated. Requires backup before updating historical rows."
+  }
+}

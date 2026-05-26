@@ -25,6 +25,10 @@ import { formatDatabaseError } from "@/lib/errors";
 import { analyzePageIntelligence } from "@/lib/intelligence/analyze";
 import type { PageIntelligence } from "@/lib/intelligence/types";
 import {
+  analyzeScrapedPagesV3,
+  analyzerV3ShadowMode,
+} from "@/lib/analyzer-v3";
+import {
   saveCompetitorIntelligenceSnapshot,
   updateCompetitorScanStatus,
 } from "@/lib/intelligence/persistence";
@@ -171,6 +175,53 @@ function isOptionalIntelligencePersistenceError(error: string | null) {
         error,
       ),
   );
+}
+
+function maybeAnalyzerV3Shadow(input: {
+  inputUrl: string;
+  pages: Array<{ pageType: PageType; scrape: ScrapedPage }>;
+}) {
+  if (!analyzerV3ShadowMode()) {
+    return null;
+  }
+
+  try {
+    const result = analyzeScrapedPagesV3(input);
+
+    if (!result) {
+      return {
+        enabled: true,
+        status: "skipped",
+        reason: "No HTML-bearing scrape results were available.",
+      };
+    }
+
+    return {
+      enabled: true,
+      status: "completed",
+      validity: result.validity,
+      confidence: result.confidence,
+      completeness: result.completeness,
+      fetch_summary: result.fetch_summary,
+      page_types: result.pages.map((page) => ({
+        requested_url: page.page.requested_url,
+        requested_page_type: page.requested_page_type,
+        detected_page_type: page.page_type_result.detected_page_type,
+        extraction_allowed: page.page_type_result.extraction_allowed,
+      })),
+      block_role_counts: result.debug_admin_only.block_role_counts,
+      business_model: result.business_model,
+      accepted_entity_count: result.debug_admin_only.accepted_entities.length,
+      rejected_entities: result.rejected_entities.slice(0, 80),
+      warnings: result.warnings,
+    };
+  } catch (error) {
+    return {
+      enabled: true,
+      status: "failed",
+      error: error instanceof Error ? error.message : "Analyzer V3 shadow failed.",
+    };
+  }
 }
 
 async function latestSnapshot(supabase: Supabase, monitoredPageId: string) {
@@ -608,6 +659,15 @@ export async function createInitialMonitoringSetup(
   }
 
   const firstScanFailed = intelligencePages.length === 0;
+  const analyzerV3Shadow = maybeAnalyzerV3Shadow({
+    inputUrl: baseUrl,
+    pages: discoveredPages
+      .filter((page) => page.scrape.html !== undefined)
+      .map((page) => ({
+        pageType: page.pageType,
+        scrape: page.scrape,
+      })),
+  });
   await updateCompetitorScanStatus({
     supabase,
     competitorId,
@@ -635,6 +695,7 @@ export async function createInitialMonitoringSetup(
       intelligencePages,
       summary: intelligenceSummary,
       scanQuality,
+      analyzerV3Shadow,
       result: {
         pagesCreated: monitoredPages?.length ?? 0,
         snapshotsCreated,
@@ -892,6 +953,15 @@ export async function rerunCompetitorIntelligence(
       ...intelligenceSummary.unknowns,
     ],
   });
+  const analyzerV3Shadow = maybeAnalyzerV3Shadow({
+    inputUrl: pages.find((page) => page.page_type === "homepage")?.url ?? pages[0]?.url ?? competitorName,
+    pages: pages
+      .map((page) => {
+        const scrape = scrapeByUrl.get(page.url);
+        return scrape ? { pageType: page.page_type as PageType, scrape } : null;
+      })
+      .filter((page): page is { pageType: PageType; scrape: ScrapedPage } => Boolean(page)),
+  });
   const intelligenceError = await saveCompetitorIntelligenceSnapshot({
     supabase,
     competitorId,
@@ -922,6 +992,7 @@ export async function rerunCompetitorIntelligence(
         intelligencePages,
         summary: intelligenceSummary,
         scanQuality,
+        analyzerV3Shadow,
         result: {
           pagesAnalyzed: intelligencePages.length,
           intelligenceSnapshotCreated,
@@ -957,6 +1028,7 @@ export async function rerunCompetitorIntelligence(
         intelligencePages,
         summary: intelligenceSummary,
         scanQuality,
+        analyzerV3Shadow,
         result: {
         pagesAnalyzed: intelligencePages.length,
         intelligenceSnapshotCreated,

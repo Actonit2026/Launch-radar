@@ -1,0 +1,152 @@
+{
+  "passed": 14,
+  "failed": 0,
+  "precision": 1,
+  "recall": 0.986,
+  "critical_false_positives": 0,
+  "scorecards": [
+    {
+      "fixture": "safe-url-foundation",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "propai-pricing",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "propai-positioning-cta-features",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "plausible-pricing",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "fathom-pricing",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "lovable-utm-duplicate-homepage",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "testimonial-price-rejection",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "case-study-budget-rejection",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "pricing-table",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "pricing-cards",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "js-shell-page",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 0.8,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": [
+        "Correctly avoids fabricating facts from a shell page."
+      ]
+    },
+    {
+      "fixture": "blocked-page",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "missing-pricing-page",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    },
+    {
+      "fixture": "model-based-change-detection",
+      "passed": true,
+      "failures": [],
+      "precision": 1,
+      "recall": 1,
+      "false_positive_count": 0,
+      "false_negative_count": 0,
+      "notes": []
+    }
+  ],
+  "trustworthy": true
+}
