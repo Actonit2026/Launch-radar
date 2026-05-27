@@ -246,15 +246,6 @@ function FeatureList({
 
 function BusinessProfileOverview({ display }: { display: IntelligenceDisplayView }) {
   const profile = display.businessProfile;
-
-  if (!profile) {
-    return (
-      <p className="mt-3 text-sm leading-6 text-ink/70">
-        {display.overview.text}
-      </p>
-    );
-  }
-
   const missingSignals = [
     display.pricing.status === "unavailable" ? "pricing" : null,
     display.positioning.status !== "found" ? "positioning" : null,
@@ -262,6 +253,39 @@ function BusinessProfileOverview({ display }: { display: IntelligenceDisplayView
     display.features.status !== "found" ? "features" : null,
     display.changelog.status !== "found" ? "changelog" : null,
   ].filter(Boolean);
+
+  if (!profile) {
+    const rows = [
+      ["Purpose", display.overview.text],
+      ["Positioning", display.positioning.text],
+      ["CTA", display.cta.text],
+      ["Pricing state", pricingStateLabels[display.pricingState]],
+      [
+        "Confidence",
+        `${display.overallConfidence} confidence${
+          display.scanQuality ? `, scan ${display.scanQuality.score}/100` : ""
+        }`,
+      ],
+      [
+        "Missing signals",
+        missingSignals.length ? missingSignals.join(", ") : "Core signals found.",
+      ],
+    ];
+
+    return (
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-md bg-paper p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-ink/40">
+              {label}
+            </p>
+            <p className="mt-1 text-sm leading-6 text-ink/70">{value}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   const rows = [
     [
       "Purpose",

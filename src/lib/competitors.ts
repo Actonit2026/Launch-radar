@@ -1,16 +1,16 @@
 import type { User } from "@supabase/supabase-js";
 import type {
   Competitor,
-  CompetitorIntelligenceSnapshot,
   DetectedChange,
   MonitoredPage,
   ProductRecommendation,
   ScanDebugLog,
+  V3IntelligenceSnapshot,
 } from "@/lib/database.types";
 import { formatDatabaseError } from "@/lib/errors";
 import { formatPageOrder } from "@/lib/format";
 import {
-  parseIntelligenceSnapshot,
+  parseV3IntelligenceSnapshot,
   type IntelligenceSnapshotView,
 } from "@/lib/intelligence/display";
 import {
@@ -97,10 +97,10 @@ function latestCheckedAt(pages: MonitoredPage[]) {
   return checkedDates[0] ?? null;
 }
 
-function latestSnapshotsByCompetitor(
-  snapshots: CompetitorIntelligenceSnapshot[],
+function latestV3SnapshotsByCompetitor(
+  snapshots: V3IntelligenceSnapshot[],
 ) {
-  const latestByCompetitor = new Map<string, CompetitorIntelligenceSnapshot>();
+  const latestByCompetitor = new Map<string, V3IntelligenceSnapshot>();
 
   for (const snapshot of snapshots) {
     if (!latestByCompetitor.has(snapshot.competitor_id)) {
@@ -166,13 +166,15 @@ export async function getDashboardData(
   const pageRows = pages ?? [];
   const pageIds = pageRows.map((page) => page.id);
   const { data: changes, error: changesError } = pageIds.length
-    ? await supabase
-        .from("detected_changes")
-        .select("*")
-        .in("monitored_page_id", pageIds)
-        .gte("confidence_score", 0.72)
-        .order("created_at", { ascending: false })
-        .limit(10)
+      ? await supabase
+          .from("detected_changes")
+          .select("*")
+          .in("monitored_page_id", pageIds)
+          .eq("analyzer_version", "v3")
+          .eq("status", "active")
+          .gte("confidence_score", 0.72)
+          .order("created_at", { ascending: false })
+          .limit(10)
     : { data: [], error: null };
 
   if (changesError) {
@@ -180,11 +182,13 @@ export async function getDashboardData(
   }
 
   const { count: changeCount, error: changeCountError } = pageIds.length
-    ? await supabase
-        .from("detected_changes")
-        .select("id", { count: "exact", head: true })
-        .in("monitored_page_id", pageIds)
-        .gte("confidence_score", 0.72)
+      ? await supabase
+          .from("detected_changes")
+          .select("id", { count: "exact", head: true })
+          .in("monitored_page_id", pageIds)
+          .eq("analyzer_version", "v3")
+          .eq("status", "active")
+          .gte("confidence_score", 0.72)
     : { count: 0, error: null };
 
   if (changeCountError) {
@@ -194,12 +198,13 @@ export async function getDashboardData(
     };
   }
 
-  const { data: intelligenceSnapshots, error: intelligenceError } =
+  const { data: v3IntelligenceSnapshots, error: intelligenceError } =
     competitorIds.length
       ? await supabase
-          .from("competitor_intelligence_snapshots")
+          .from("v3_intelligence_snapshots")
           .select("*")
           .in("competitor_id", competitorIds)
+          .neq("validity", "invalid_for_intelligence")
           .order("created_at", { ascending: false })
           .limit(100)
       : { data: [], error: null };
@@ -245,8 +250,8 @@ export async function getDashboardData(
   );
   const pageById = new Map(pageRows.map((page) => [page.id, page]));
   const pagesByCompetitor = new Map<string, MonitoredPage[]>();
-  const latestIntelligenceByCompetitor = latestSnapshotsByCompetitor(
-    intelligenceSnapshots ?? [],
+  const latestIntelligenceByCompetitor = latestV3SnapshotsByCompetitor(
+    v3IntelligenceSnapshots ?? [],
   );
 
   for (const page of pageRows) {
@@ -292,7 +297,7 @@ export async function getDashboardData(
       latestChange,
       changeCount: competitorChangeCount,
       lastCheckedAt: latestCheckedAt(monitoredPages),
-      latestIntelligence: parseIntelligenceSnapshot(
+      latestIntelligence: parseV3IntelligenceSnapshot(
         latestIntelligenceByCompetitor.get(competitor.id),
       ),
     };
@@ -363,12 +368,14 @@ export async function getCompetitorDetail(
   const pageRows = sortPages(pages ?? []);
   const pageIds = pageRows.map((page) => page.id);
   const { data: changes, error: changesError } = pageIds.length
-    ? await supabase
-        .from("detected_changes")
-        .select("*")
-        .in("monitored_page_id", pageIds)
-        .gte("confidence_score", 0.72)
-        .order("created_at", { ascending: false })
+      ? await supabase
+          .from("detected_changes")
+          .select("*")
+          .in("monitored_page_id", pageIds)
+          .eq("analyzer_version", "v3")
+          .eq("status", "active")
+          .gte("confidence_score", 0.72)
+          .order("created_at", { ascending: false })
     : { data: [], error: null };
 
   if (changesError) {
@@ -391,9 +398,10 @@ export async function getCompetitorDetail(
     );
 
   const { data: intelligenceSnapshot, error: intelligenceError } = await supabase
-    .from("competitor_intelligence_snapshots")
+    .from("v3_intelligence_snapshots")
     .select("*")
     .eq("competitor_id", competitor.id)
+    .neq("validity", "invalid_for_intelligence")
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -421,7 +429,7 @@ export async function getCompetitorDetail(
       competitor,
       pages: pageRows,
       changes: changesWithPages,
-      latestIntelligence: parseIntelligenceSnapshot(intelligenceSnapshot),
+      latestIntelligence: parseV3IntelligenceSnapshot(intelligenceSnapshot),
       debugLogs: parseDebugLogs(debugLogs ?? []),
       canViewDebug,
     },

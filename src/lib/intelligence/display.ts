@@ -1,4 +1,17 @@
-import type { CompetitorIntelligenceSnapshot, Json } from "@/lib/database.types";
+import {
+  buildV3PricingDisplayContract,
+  type V3PricingDisplayOption,
+} from "@/lib/analyzer-v3/pricing-display";
+import type {
+  AnalyzerV3Confidence,
+  BusinessModelV3,
+  ModelEvidence,
+} from "@/lib/analyzer-v3/types";
+import type {
+  CompetitorIntelligenceSnapshot,
+  Json,
+  V3IntelligenceSnapshot,
+} from "@/lib/database.types";
 import type { BusinessProfile } from "@/lib/intelligence/business-profile";
 import type { Confidence } from "@/lib/intelligence/types";
 import type {
@@ -71,6 +84,18 @@ type PersistedIntelligenceSnapshot = Pick<
   structured_facts_json?: Json;
   analyzed_pages: Json;
 };
+
+type PersistedV3IntelligenceSnapshot = Pick<
+  V3IntelligenceSnapshot,
+  | "id"
+  | "created_at"
+  | "business_model"
+  | "validity"
+  | "confidence"
+  | "completeness"
+  | "warnings"
+  | "source_pages"
+>;
 
 export type IntelligenceSectionView = {
   status: "found" | "unclear" | "unavailable";
@@ -406,6 +431,260 @@ export function parseIntelligenceSnapshot(
           ]),
         )
       : row.warnings,
+  };
+}
+
+function firstEvidence(evidence: ModelEvidence[] | undefined) {
+  return evidence?.find(
+    (item) => stringOrNull(item.source_url) && stringOrNull(item.evidence_text),
+  );
+}
+
+function v3Fact({
+  field,
+  value,
+  evidence,
+  confidence,
+  normalizedValue,
+}: {
+  field: string;
+  value: string | null | undefined;
+  evidence: ModelEvidence[] | undefined;
+  confidence: AnalyzerV3Confidence;
+  normalizedValue?: unknown;
+}): IntelligenceFactView | null {
+  const cleanValue = stringOrNull(value);
+  const source = firstEvidence(evidence);
+
+  if (!cleanValue || !source) {
+    return null;
+  }
+
+  const confidenceScore =
+    confidence === "high" ? 0.92 : confidence === "medium" ? 0.76 : 0.42;
+
+  return {
+    field,
+    value: cleanValue,
+    normalizedValue,
+    confidence,
+    confidenceScore,
+    sourceUrl: source.source_url,
+    evidenceText: source.evidence_text,
+    extractionMethod: "v3_business_model",
+  };
+}
+
+function v3PricingFact(option: V3PricingDisplayOption): IntelligenceFactView | null {
+  return v3Fact({
+    field: option.kind === "usage_tier" ? "usage_tier" : option.kind === "contact_sales" ? "contact_sales" : "pricing_plan",
+    value:
+      option.kind === "contact_sales"
+        ? option.text
+        : `${option.label}: ${option.text}`,
+    evidence: option.evidence,
+    confidence: option.confidence,
+    normalizedValue: {
+      plan: option.label,
+      amount: option.price,
+      currency: option.currency,
+      period: option.billing_period,
+      kind: option.kind,
+      display_key: option.key,
+    },
+  });
+}
+
+function parseV3SourcePage(value: unknown): AnalyzedPageView | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const sourceUrl =
+    stringOrNull(value.final_url) ?? stringOrNull(value.requested_url);
+
+  if (!sourceUrl) {
+    return null;
+  }
+
+  const extractionAllowed = value.extraction_allowed !== false;
+  const detectedPageType = stringOrNull(value.detected_page_type) ?? "unknown";
+
+  return {
+    sourceUrl,
+    pageType: stringOrNull(value.requested_page_type) ?? detectedPageType,
+    detectedPageType,
+    pageTypeVerified: extractionAllowed,
+    validForIntelligence: extractionAllowed,
+    intelligenceStatus: extractionAllowed ? "valid" : "invalid_for_intelligence",
+    title: stringOrNull(value.title) ?? "Untitled page",
+    fetchStatus:
+      typeof value.fetch_status === "number" ? value.fetch_status : null,
+    contentHash: stringOrNull(value.content_hash) ?? "",
+    extractedTextLength: numberOrDefault(value.extracted_text_length, 0),
+    factCount: 0,
+    warnings: stringArray(value.warnings),
+  };
+}
+
+function v3OverviewText(model: BusinessModelV3) {
+  return (
+    model.homepage.value_prop ??
+    model.homepage.positioning_statement ??
+    model.homepage.headline ??
+    LIMITED_DATA_MESSAGE
+  );
+}
+
+export function parseV3IntelligenceSnapshot(
+  row: PersistedV3IntelligenceSnapshot | null | undefined,
+): IntelligenceSnapshotView | null {
+  if (!row || !isRecord(row.business_model)) {
+    return null;
+  }
+
+  const model = row.business_model as unknown as BusinessModelV3;
+  const validity = stringOrNull(row.validity);
+
+  if (validity === "invalid_for_intelligence") {
+    return null;
+  }
+
+  const pricingContract = buildV3PricingDisplayContract(model);
+  const pricingFacts = pricingContract.displayed_options
+    .map(v3PricingFact)
+    .filter((fact): fact is IntelligenceFactView => Boolean(fact));
+  const featureFacts = model.features.capabilities
+    .slice(0, 10)
+    .map((feature) =>
+      v3Fact({
+        field: "feature",
+        value: feature.description
+          ? `${feature.name}: ${feature.description}`
+          : feature.name,
+        evidence: feature.evidence,
+        confidence: feature.confidence,
+      }),
+    )
+    .filter((fact): fact is IntelligenceFactView => Boolean(fact));
+  const changelogFacts =
+    model.changelog.status === "verified"
+      ? model.changelog.entries
+          .slice(0, 5)
+          .map((entry) =>
+            v3Fact({
+              field: "recent_update_title",
+              value: entry.title,
+              evidence: entry.evidence,
+              confidence: entry.confidence,
+            }),
+          )
+          .filter((fact): fact is IntelligenceFactView => Boolean(fact))
+      : [];
+  const facts = [
+    v3Fact({
+      field: "homepage_headline",
+      value: model.homepage.headline,
+      evidence: model.homepage.evidence,
+      confidence: model.homepage.confidence,
+    }),
+    v3Fact({
+      field: "subheadline",
+      value: model.homepage.subheadline,
+      evidence: model.homepage.evidence,
+      confidence: model.homepage.confidence,
+    }),
+    v3Fact({
+      field: "main_value_prop",
+      value: model.homepage.value_prop,
+      evidence: model.homepage.evidence,
+      confidence: model.homepage.confidence,
+    }),
+    v3Fact({
+      field: "target_customer",
+      value: model.homepage.target_customer,
+      evidence: model.homepage.evidence,
+      confidence: model.homepage.confidence,
+    }),
+    v3Fact({
+      field: "primary_cta",
+      value: model.cta.primary_cta,
+      evidence: model.cta.evidence,
+      confidence: model.cta.confidence,
+    }),
+    v3Fact({
+      field: "secondary_cta",
+      value: model.cta.secondary_cta,
+      evidence: model.cta.evidence,
+      confidence: model.cta.confidence,
+    }),
+    v3Fact({
+      field: "pricing_model_type",
+      value: model.pricing.model_type,
+      evidence: model.pricing.evidence,
+      confidence: model.pricing.confidence,
+    }),
+    v3Fact({
+      field: "pricing_completeness",
+      value: String(Math.round(model.pricing.completeness * 100)),
+      evidence: model.pricing.evidence,
+      confidence: model.pricing.confidence,
+    }),
+    ...model.pricing.billing_modes.map((mode) =>
+      v3Fact({
+        field: "billing_mode",
+        value: mode,
+        evidence: model.pricing.evidence,
+        confidence: model.pricing.confidence,
+      }),
+    ),
+    ...pricingFacts,
+    ...featureFacts,
+    ...changelogFacts,
+  ].filter((fact): fact is IntelligenceFactView => Boolean(fact));
+  const analyzedPages = Array.isArray(row.source_pages)
+    ? row.source_pages
+        .map(parseV3SourcePage)
+        .filter((page): page is AnalyzedPageView => Boolean(page))
+    : [];
+
+  return {
+    id: row.id,
+    createdAt: row.created_at,
+    source: "deterministic",
+    summary: {
+      executiveSummary: v3OverviewText(model),
+      pricingSummary:
+        pricingContract.status === "public_pricing"
+          ? `Detected ${pricingContract.displayed_options.length} accepted pricing option${pricingContract.displayed_options.length === 1 ? "" : "s"}.`
+          : pricingContract.status === "contact_sales"
+            ? "Contact sales is visible on the public site."
+            : pricingContract.status === "no_public_pricing"
+              ? "No public pricing detected."
+              : "Pricing unclear from accepted public evidence.",
+      positioningSummary: model.homepage.headline ?? model.homepage.value_prop,
+      featureSummary:
+        featureFacts.length >= 3
+          ? `${featureFacts.length} verified feature signals detected.`
+          : null,
+      ctaSummary: model.cta.primary_cta,
+      unknowns: model.missing_data,
+      warnings: [
+        ...model.warnings,
+        ...pricingContract.warnings,
+        ...(validity === "unknown" || validity === "blocked" || validity === "unavailable"
+          ? [`V3 snapshot validity is ${validity}.`]
+          : []),
+      ],
+      overallConfidence: row.confidence,
+      businessProfile: null,
+      scanQuality: null,
+    },
+    facts,
+    analyzedPages,
+    warnings: Array.isArray(row.warnings)
+      ? row.warnings.filter((warning): warning is string => typeof warning === "string")
+      : [],
   };
 }
 

@@ -41,18 +41,24 @@ async function runScheduledScans(request: Request) {
     ],
     rotationWeek: 0,
   }));
-  const { data: users, error } = await supabase
-    .from("users")
-    .select("id")
+  const { data: competitorOwners, error } = await supabase
+    .from("competitors")
+    .select("user_id, created_at")
     .order("created_at", { ascending: true })
-    .limit(scheduledUserLimit());
+    .limit(scheduledUserLimit() * 10);
 
   if (error) {
     return NextResponse.json(
-      { error: "Could not load users for scheduled scans." },
+      { error: "Could not load active competitor owners for scheduled scans." },
       { status: 500 },
     );
   }
+
+  const users = Array.from(
+    new Set((competitorOwners ?? []).map((row) => row.user_id)),
+  )
+    .slice(0, scheduledUserLimit())
+    .map((id) => ({ id }));
 
   let processed = 0;
   let skipped = 0;
@@ -91,7 +97,7 @@ async function runScheduledScans(request: Request) {
   }
 
   return NextResponse.json({
-    users: users?.length ?? 0,
+    users: users.length,
     processed,
     skipped,
     checked,

@@ -361,16 +361,19 @@ export function buildManualScanDebugPayload({
   scrapes,
   outcomes,
   scanQuality,
+  analyzerV3Shadow,
 }: {
   pages: MonitoredPage[];
   scrapes: ScrapedPage[];
   outcomes: unknown[];
   scanQuality?: ScanQualitySummary | null;
+  analyzerV3Shadow?: unknown;
 }) {
   return {
     monitored_pages: pages.map(compactMonitoredPage),
     page_fetches: scrapes.map(compactScrape),
     outcomes,
+    analyzer_v3_shadow: analyzerV3Shadow ?? null,
     scan_quality: scanQuality ?? null,
   };
 }

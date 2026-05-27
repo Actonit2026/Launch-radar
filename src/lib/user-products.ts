@@ -4,10 +4,10 @@ import { summarizeIntelligence } from "@/lib/ai/intelligence-summary";
 import { discoverCompetitorPages } from "@/lib/crawler/discovery";
 import { analyzePageIntelligence } from "@/lib/intelligence/analyze";
 import { buildBusinessProfile } from "@/lib/intelligence/business-profile";
-import type { PageIntelligence } from "@/lib/intelligence/types";
+import type { PageIntelligence, StructuredFact } from "@/lib/intelligence/types";
+import { parseV3IntelligenceSnapshot } from "@/lib/intelligence/display";
 import {
   buildProductRecommendations,
-  parseStructuredFacts,
 } from "@/lib/product-recommendations";
 import { estimateScanCostEur, recordUsageEvent } from "@/lib/usage";
 import { cleanupSnapshotRetentionForUser } from "@/lib/retention";
@@ -96,9 +96,10 @@ async function latestCompetitorSnapshots(supabase: Supabase, userId: string) {
 
   for (const competitor of competitors ?? []) {
     const { data: snapshot, error: snapshotError } = await supabase
-      .from("competitor_intelligence_snapshots")
-      .select("facts, analyzed_pages")
+      .from("v3_intelligence_snapshots")
+      .select("*")
       .eq("competitor_id", competitor.id)
+      .neq("validity", "invalid_for_intelligence")
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -107,17 +108,18 @@ async function latestCompetitorSnapshots(supabase: Supabase, userId: string) {
       throw new Error(snapshotError.message);
     }
 
-    const hasValidAnalyzedPage =
-      Array.isArray(snapshot?.analyzed_pages) &&
-      snapshot.analyzed_pages.some((page) => {
-        if (!page || typeof page !== "object" || Array.isArray(page)) {
-          return false;
-        }
-
-        return (page as Record<string, unknown>).valid_for_intelligence === true;
-      });
-    const facts = snapshot && hasValidAnalyzedPage
-      ? parseStructuredFacts(snapshot.facts)
+    const view = parseV3IntelligenceSnapshot(snapshot);
+    const facts: StructuredFact[] = view
+      ? view.facts.map((fact) => ({
+          field: fact.field,
+          value: fact.value,
+          normalized_value: toJson(fact.normalizedValue),
+          confidence: fact.confidence,
+          confidence_score: fact.confidenceScore,
+          source_url: fact.sourceUrl,
+          evidence_text: fact.evidenceText,
+          extraction_method: "deterministic_structure",
+        }))
       : [];
 
     if (facts.length) {

@@ -101,6 +101,9 @@ export async function sendDetectedChangeNotification({
     .from("detected_changes")
     .select("id, diff_summary, severity, created_at, monitored_page_id")
     .eq("id", changeId)
+    .eq("analyzer_version", "v3")
+    .eq("status", "active")
+    .gte("confidence_score", 0.72)
     .maybeSingle();
 
   if (changeError) {

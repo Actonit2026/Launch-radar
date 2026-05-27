@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint src next.config.ts --ext .js,.jsx,.ts,.tsx",
+    "test": "node scripts/final-v15-product-path.mjs",
     "typecheck": "tsc --noEmit",
     "test:phase11": "node scripts/phase11-checks.mjs",
     "test:v4:real": "node scripts/final-v4-real-world.mjs",
@@ -20,6 +21,7 @@
     "test:v13:private-beta": "node scripts/final-v13-private-beta.mjs",
     "test:v14:core-analyzer": "node scripts/final-v14-core-analyzer.mjs",
     "test:v15:analyzer-v3": "node scripts/analyzer-v3-evaluation.mjs",
+    "test:v15:product-path": "node scripts/final-v15-product-path.mjs",
     "report:v9": "node scripts/final-v9-generate-reports.mjs",
     "prelaunch:scorecard": "node scripts/prelaunch-scorecard.mjs"
   },

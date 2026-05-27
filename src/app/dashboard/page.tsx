@@ -81,17 +81,16 @@ function MarketPulse({ data }: { data: DashboardData }) {
       (page) => page.last_fetch_status === "failed",
     ),
   ).length;
-  const publicPricingCompetitors = data.competitors.filter((competitor) => {
-    const visibility =
-      competitor.latestIntelligence?.summary.businessProfile?.monetization
-        .pricing_visibility;
-
-    return visibility === "public" || visibility === "partially_public";
-  }).length;
-  const changelogCompetitors = data.competitors.filter(
-    (competitor) =>
-      competitor.latestIntelligence?.summary.businessProfile?.momentum
-        .changelog_detected,
+  const intelligenceDisplays = data.competitors
+    .map((competitor) => buildIntelligenceDisplay(competitor.latestIntelligence))
+    .filter((display): display is NonNullable<typeof display> => Boolean(display));
+  const publicPricingCompetitors = intelligenceDisplays.filter(
+    (display) =>
+      display.pricingState === "public_pricing" ||
+      display.pricingState === "contact_sales",
+  ).length;
+  const changelogCompetitors = intelligenceDisplays.filter(
+    (display) => display.changelog.status === "found",
   ).length;
   const latestScan = data.competitors
     .map((competitor) => competitor.lastCheckedAt)

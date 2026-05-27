@@ -410,6 +410,10 @@ export type Database = {
           old_value: Json | null;
           new_value: Json | null;
           evidence_text: string | null;
+          analyzer_version: string | null;
+          change_model_type: string | null;
+          source_snapshot_id: string | null;
+          status: "active" | "quarantined" | "legacy_quarantined";
           created_at: string;
         };
         Insert: {
@@ -424,6 +428,10 @@ export type Database = {
           old_value?: Json | null;
           new_value?: Json | null;
           evidence_text?: string | null;
+          analyzer_version?: string | null;
+          change_model_type?: string | null;
+          source_snapshot_id?: string | null;
+          status?: "active" | "quarantined" | "legacy_quarantined";
           created_at?: string;
         };
         Update: {
@@ -438,11 +446,212 @@ export type Database = {
           old_value?: Json | null;
           new_value?: Json | null;
           evidence_text?: string | null;
+          analyzer_version?: string | null;
+          change_model_type?: string | null;
+          source_snapshot_id?: string | null;
+          status?: "active" | "quarantined" | "legacy_quarantined";
           created_at?: string;
         };
         Relationships: [
           {
             foreignKeyName: "detected_changes_monitored_page_id_fkey";
+            columns: ["monitored_page_id"];
+            isOneToOne: false;
+            referencedRelation: "monitored_pages";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "detected_changes_source_snapshot_id_fkey";
+            columns: ["source_snapshot_id"];
+            isOneToOne: false;
+            referencedRelation: "v3_intelligence_snapshots";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      v3_intelligence_snapshots: {
+        Row: {
+          id: string;
+          user_id: string;
+          competitor_id: string;
+          analyzed_url: string;
+          canonical_url: string;
+          analyzer_version: "v3";
+          business_model: Json;
+          pricing_model: Json;
+          homepage_model: Json;
+          positioning_model: Json;
+          cta_model: Json;
+          feature_model: Json;
+          changelog_model: Json;
+          availability_model: Json;
+          validity:
+            | "verified"
+            | "partial"
+            | "unknown"
+            | "blocked"
+            | "unavailable"
+            | "invalid_for_intelligence";
+          confidence: "high" | "medium" | "low";
+          completeness: number;
+          evidence_count: number;
+          rejected_entities: Json;
+          warnings: Json;
+          source_pages: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          competitor_id: string;
+          analyzed_url: string;
+          canonical_url: string;
+          analyzer_version?: "v3";
+          business_model?: Json;
+          pricing_model?: Json;
+          homepage_model?: Json;
+          positioning_model?: Json;
+          cta_model?: Json;
+          feature_model?: Json;
+          changelog_model?: Json;
+          availability_model?: Json;
+          validity:
+            | "verified"
+            | "partial"
+            | "unknown"
+            | "blocked"
+            | "unavailable"
+            | "invalid_for_intelligence";
+          confidence: "high" | "medium" | "low";
+          completeness?: number;
+          evidence_count?: number;
+          rejected_entities?: Json;
+          warnings?: Json;
+          source_pages?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          competitor_id?: string;
+          analyzed_url?: string;
+          canonical_url?: string;
+          analyzer_version?: "v3";
+          business_model?: Json;
+          pricing_model?: Json;
+          homepage_model?: Json;
+          positioning_model?: Json;
+          cta_model?: Json;
+          feature_model?: Json;
+          changelog_model?: Json;
+          availability_model?: Json;
+          validity?:
+            | "verified"
+            | "partial"
+            | "unknown"
+            | "blocked"
+            | "unavailable"
+            | "invalid_for_intelligence";
+          confidence?: "high" | "medium" | "low";
+          completeness?: number;
+          evidence_count?: number;
+          rejected_entities?: Json;
+          warnings?: Json;
+          source_pages?: Json;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "v3_intelligence_snapshots_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "v3_intelligence_snapshots_competitor_id_fkey";
+            columns: ["competitor_id"];
+            isOneToOne: false;
+            referencedRelation: "competitors";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      v3_shadow_output: {
+        Row: {
+          id: string;
+          user_id: string;
+          competitor_id: string;
+          monitored_page_id: string | null;
+          analyzer_version: "v3";
+          old_analyzer_summary: Json;
+          business_model: Json;
+          validity: string;
+          confidence: "high" | "medium" | "low";
+          pricing_status: string;
+          pricing_confidence: "high" | "medium" | "low";
+          accepted_price_count: number;
+          rejected_price_count: number;
+          displayed_price_count: number | null;
+          dangerous_output: boolean;
+          comparison_notes: Json;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          competitor_id: string;
+          monitored_page_id?: string | null;
+          analyzer_version?: "v3";
+          old_analyzer_summary?: Json;
+          business_model?: Json;
+          validity: string;
+          confidence: "high" | "medium" | "low";
+          pricing_status: string;
+          pricing_confidence: "high" | "medium" | "low";
+          accepted_price_count?: number;
+          rejected_price_count?: number;
+          displayed_price_count?: number | null;
+          dangerous_output?: boolean;
+          comparison_notes?: Json;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          competitor_id?: string;
+          monitored_page_id?: string | null;
+          analyzer_version?: "v3";
+          old_analyzer_summary?: Json;
+          business_model?: Json;
+          validity?: string;
+          confidence?: "high" | "medium" | "low";
+          pricing_status?: string;
+          pricing_confidence?: "high" | "medium" | "low";
+          accepted_price_count?: number;
+          rejected_price_count?: number;
+          displayed_price_count?: number | null;
+          dangerous_output?: boolean;
+          comparison_notes?: Json;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "v3_shadow_output_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "v3_shadow_output_competitor_id_fkey";
+            columns: ["competitor_id"];
+            isOneToOne: false;
+            referencedRelation: "competitors";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "v3_shadow_output_monitored_page_id_fkey";
             columns: ["monitored_page_id"];
             isOneToOne: false;
             referencedRelation: "monitored_pages";
@@ -857,6 +1066,10 @@ export type DetectedChange =
   Database["public"]["Tables"]["detected_changes"]["Row"];
 export type CompetitorIntelligenceSnapshot =
   Database["public"]["Tables"]["competitor_intelligence_snapshots"]["Row"];
+export type V3IntelligenceSnapshot =
+  Database["public"]["Tables"]["v3_intelligence_snapshots"]["Row"];
+export type V3ShadowOutput =
+  Database["public"]["Tables"]["v3_shadow_output"]["Row"];
 export type ScanDebugLog =
   Database["public"]["Tables"]["scan_debug_logs"]["Row"];
 export type ScanJob =

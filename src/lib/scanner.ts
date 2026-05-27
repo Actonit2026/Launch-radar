@@ -26,8 +26,14 @@ import { analyzePageIntelligence } from "@/lib/intelligence/analyze";
 import type { PageIntelligence } from "@/lib/intelligence/types";
 import {
   analyzeScrapedPagesV3,
+  analyzerV3Enabled,
   analyzerV3ShadowMode,
 } from "@/lib/analyzer-v3";
+import {
+  saveV3IntelligenceSnapshot,
+  saveV3ShadowOutput,
+} from "@/lib/analyzer-v3/persistence";
+import type { AnalyzerV3Result } from "@/lib/analyzer-v3/types";
 import {
   saveCompetitorIntelligenceSnapshot,
   updateCompetitorScanStatus,
@@ -177,12 +183,12 @@ function isOptionalIntelligencePersistenceError(error: string | null) {
   );
 }
 
-function maybeAnalyzerV3Shadow(input: {
+function maybeAnalyzerV3(input: {
   inputUrl: string;
   pages: Array<{ pageType: PageType; scrape: ScrapedPage }>;
-}) {
-  if (!analyzerV3ShadowMode()) {
-    return null;
+}): { result: AnalyzerV3Result | null; debug: unknown | null } {
+  if (!analyzerV3ShadowMode() && !analyzerV3Enabled()) {
+    return { result: null, debug: null };
   }
 
   try {
@@ -190,36 +196,46 @@ function maybeAnalyzerV3Shadow(input: {
 
     if (!result) {
       return {
-        enabled: true,
-        status: "skipped",
-        reason: "No HTML-bearing scrape results were available.",
+        result: null,
+        debug: {
+          enabled: true,
+          status: "skipped",
+          reason: "No HTML-bearing scrape results were available.",
+        },
       };
     }
 
     return {
-      enabled: true,
-      status: "completed",
-      validity: result.validity,
-      confidence: result.confidence,
-      completeness: result.completeness,
-      fetch_summary: result.fetch_summary,
-      page_types: result.pages.map((page) => ({
-        requested_url: page.page.requested_url,
-        requested_page_type: page.requested_page_type,
-        detected_page_type: page.page_type_result.detected_page_type,
-        extraction_allowed: page.page_type_result.extraction_allowed,
-      })),
-      block_role_counts: result.debug_admin_only.block_role_counts,
-      business_model: result.business_model,
-      accepted_entity_count: result.debug_admin_only.accepted_entities.length,
-      rejected_entities: result.rejected_entities.slice(0, 80),
-      warnings: result.warnings,
+      result,
+      debug: {
+        enabled: true,
+        status: "completed",
+        mode: analyzerV3Enabled() ? "source_of_truth" : "shadow",
+        validity: result.validity,
+        confidence: result.confidence,
+        completeness: result.completeness,
+        fetch_summary: result.fetch_summary,
+        page_types: result.pages.map((page) => ({
+          requested_url: page.page.requested_url,
+          requested_page_type: page.requested_page_type,
+          detected_page_type: page.page_type_result.detected_page_type,
+          extraction_allowed: page.page_type_result.extraction_allowed,
+        })),
+        block_role_counts: result.debug_admin_only.block_role_counts,
+        business_model: result.business_model,
+        accepted_entity_count: result.debug_admin_only.accepted_entities.length,
+        rejected_entities: result.rejected_entities.slice(0, 80),
+        warnings: result.warnings,
+      },
     };
   } catch (error) {
     return {
-      enabled: true,
-      status: "failed",
-      error: error instanceof Error ? error.message : "Analyzer V3 shadow failed.",
+      result: null,
+      debug: {
+        enabled: true,
+        status: "failed",
+        error: error instanceof Error ? error.message : "Analyzer V3 failed.",
+      },
     };
   }
 }
@@ -346,7 +362,7 @@ async function saveAnalyzedSnapshot(
 
   const detectedChangePayload = createDetectedChangePayload(meaningfulChanges);
 
-  if (existingSnapshot && detectedChangePayload) {
+  if (existingSnapshot && detectedChangePayload && !analyzerV3Enabled()) {
     const { data: detectedChange, error: changeError } = await supabase
       .from("detected_changes")
       .insert({
@@ -640,26 +656,7 @@ export async function createInitialMonitoringSetup(
     stageTimings,
     warnings: qualityWarnings,
   });
-  const intelligenceError = await saveCompetitorIntelligenceSnapshot({
-    supabase,
-    competitorId,
-    pages: intelligencePages,
-    summary: intelligenceSummary,
-    scanQuality,
-  });
-
-  intelligenceSnapshotCreated = !intelligenceError;
-
-  if (
-    intelligenceError &&
-    !isOptionalIntelligencePersistenceError(intelligenceError) &&
-    !crawlWarning
-  ) {
-    crawlWarning = intelligenceError;
-  }
-
-  const firstScanFailed = intelligencePages.length === 0;
-  const analyzerV3Shadow = maybeAnalyzerV3Shadow({
+  const analyzerV3 = maybeAnalyzerV3({
     inputUrl: baseUrl,
     pages: discoveredPages
       .filter((page) => page.scrape.html !== undefined)
@@ -668,6 +665,44 @@ export async function createInitialMonitoringSetup(
         scrape: page.scrape,
       })),
   });
+  const v3Persistence = await saveV3IntelligenceSnapshot({
+    supabase,
+    userId: options?.userId,
+    competitorId,
+    analyzedUrl: baseUrl,
+    result: analyzerV3.result,
+    monitoredPages: monitoredPages ?? [],
+    createChanges: false,
+  });
+  const v3ShadowError = await saveV3ShadowOutput({
+    supabase,
+    userId: options?.userId,
+    competitorId,
+    monitoredPageId: (monitoredPages ?? []).find((page) => page.page_type === "homepage")?.id ?? null,
+    result: analyzerV3.result,
+    oldAnalyzerSummary: intelligenceSummary,
+  });
+  const intelligenceError = await saveCompetitorIntelligenceSnapshot({
+    supabase,
+    competitorId,
+    pages: intelligencePages,
+    summary: intelligenceSummary,
+    scanQuality,
+  });
+
+  intelligenceSnapshotCreated = analyzerV3Enabled()
+    ? v3Persistence.snapshotCreated
+    : !intelligenceError;
+
+  if (
+    (intelligenceError || v3Persistence.error || v3ShadowError) &&
+    !isOptionalIntelligencePersistenceError(intelligenceError) &&
+    !crawlWarning
+  ) {
+    crawlWarning = intelligenceError ?? v3Persistence.error ?? v3ShadowError ?? undefined;
+  }
+
+  const firstScanFailed = intelligencePages.length === 0 && !analyzerV3.result;
   await updateCompetitorScanStatus({
     supabase,
     competitorId,
@@ -695,7 +730,7 @@ export async function createInitialMonitoringSetup(
       intelligencePages,
       summary: intelligenceSummary,
       scanQuality,
-      analyzerV3Shadow,
+      analyzerV3Shadow: analyzerV3.debug,
       result: {
         pagesCreated: monitoredPages?.length ?? 0,
         snapshotsCreated,
@@ -707,10 +742,12 @@ export async function createInitialMonitoringSetup(
       ...intelligencePages.flatMap((page) => page.warnings),
       ...intelligenceSummary.warnings,
       ...intelligenceSummary.unknowns,
+      ...(v3Persistence.error ? [v3Persistence.error] : []),
+      ...(v3ShadowError ? [v3ShadowError] : []),
     ],
     errors:
-      firstScanFailed || intelligenceError
-        ? [crawlWarning, intelligenceError, firstScanFailed ? "No useful public pages found." : null].filter(
+      firstScanFailed || intelligenceError || v3Persistence.error || v3ShadowError
+        ? [crawlWarning, intelligenceError, v3Persistence.error, v3ShadowError, firstScanFailed ? "No useful public pages found." : null].filter(
             (value): value is string => Boolean(value),
           )
         : [],
@@ -953,7 +990,7 @@ export async function rerunCompetitorIntelligence(
       ...intelligenceSummary.unknowns,
     ],
   });
-  const analyzerV3Shadow = maybeAnalyzerV3Shadow({
+  const analyzerV3 = maybeAnalyzerV3({
     inputUrl: pages.find((page) => page.page_type === "homepage")?.url ?? pages[0]?.url ?? competitorName,
     pages: pages
       .map((page) => {
@@ -962,6 +999,23 @@ export async function rerunCompetitorIntelligence(
       })
       .filter((page): page is { pageType: PageType; scrape: ScrapedPage } => Boolean(page)),
   });
+  const v3Persistence = await saveV3IntelligenceSnapshot({
+    supabase,
+    userId,
+    competitorId,
+    analyzedUrl: pages.find((page) => page.page_type === "homepage")?.url ?? pages[0]?.url ?? competitorName,
+    result: analyzerV3.result,
+    monitoredPages: pages,
+    createChanges: true,
+  });
+  const v3ShadowError = await saveV3ShadowOutput({
+    supabase,
+    userId,
+    competitorId,
+    monitoredPageId: pages.find((page) => page.page_type === "homepage")?.id ?? pages[0]?.id ?? null,
+    result: analyzerV3.result,
+    oldAnalyzerSummary: intelligenceSummary,
+  });
   const intelligenceError = await saveCompetitorIntelligenceSnapshot({
     supabase,
     competitorId,
@@ -969,17 +1023,22 @@ export async function rerunCompetitorIntelligence(
     summary: intelligenceSummary,
     scanQuality,
   });
-  const intelligenceSnapshotCreated = !intelligenceError;
+  const intelligenceSnapshotCreated = analyzerV3Enabled()
+    ? v3Persistence.snapshotCreated
+    : !intelligenceError;
 
   if (
-    intelligenceError &&
+    (intelligenceError || v3Persistence.error || v3ShadowError) &&
     !isOptionalIntelligencePersistenceError(intelligenceError)
   ) {
+    const persistenceError =
+      intelligenceError ?? v3Persistence.error ?? v3ShadowError ?? "Could not save intelligence.";
+
     await updateCompetitorScanStatus({
       supabase,
       competitorId,
       status: "failed",
-      error: intelligenceError,
+      error: persistenceError,
     });
     await saveScanDebugLog({
       supabase,
@@ -992,7 +1051,7 @@ export async function rerunCompetitorIntelligence(
         intelligencePages,
         summary: intelligenceSummary,
         scanQuality,
-        analyzerV3Shadow,
+        analyzerV3Shadow: analyzerV3.debug,
         result: {
           pagesAnalyzed: intelligencePages.length,
           intelligenceSnapshotCreated,
@@ -1005,11 +1064,13 @@ export async function rerunCompetitorIntelligence(
         ...intelligencePages.flatMap((page) => page.warnings),
         ...intelligenceSummary.warnings,
         ...intelligenceSummary.unknowns,
+        ...(v3Persistence.error ? [v3Persistence.error] : []),
+        ...(v3ShadowError ? [v3ShadowError] : []),
       ],
-      errors: [intelligenceError],
+      errors: [persistenceError],
     });
 
-    return { data: null, error: intelligenceError };
+    return { data: null, error: persistenceError };
   }
 
   await updateCompetitorScanStatus({
@@ -1028,7 +1089,7 @@ export async function rerunCompetitorIntelligence(
         intelligencePages,
         summary: intelligenceSummary,
         scanQuality,
-        analyzerV3Shadow,
+        analyzerV3Shadow: analyzerV3.debug,
         result: {
         pagesAnalyzed: intelligencePages.length,
         intelligenceSnapshotCreated,
@@ -1127,7 +1188,9 @@ export async function scanMonitoredPagesForUser(
     .maybeSingle();
 
   if (profileError) {
-    return { data: null, error: formatDatabaseError(profileError.message) };
+    if (!/relation .*users|schema cache|Could not find the table/i.test(profileError.message)) {
+      return { data: null, error: formatDatabaseError(profileError.message) };
+    }
   }
 
   const { data: monitoredPages, error: pagesError } = await supabase
@@ -1378,6 +1441,50 @@ export async function scanMonitoredPagesForUser(
       stageTimings,
       warnings: errors,
     });
+    const analyzerV3 = maybeAnalyzerV3({
+      inputUrl: competitor?.baseUrl ?? competitorPages[0]?.url ?? userId,
+      pages: competitorPages
+        .map((page) => {
+          const scrape = scrapeByUrl.get(page.url);
+          return scrape
+            ? { pageType: page.page_type as PageType, scrape }
+            : null;
+        })
+        .filter(
+          (page): page is { pageType: PageType; scrape: ScrapedPage } =>
+            Boolean(page),
+        ),
+    });
+    const v3Persistence = await saveV3IntelligenceSnapshot({
+      supabase,
+      userId,
+      competitorId,
+      analyzedUrl: competitor?.baseUrl ?? competitorPages[0]?.url ?? userId,
+      result: analyzerV3.result,
+      monitoredPages: competitorPages,
+      createChanges: true,
+    });
+    const v3ShadowError = await saveV3ShadowOutput({
+      supabase,
+      userId,
+      competitorId,
+      monitoredPageId:
+        competitorPages.find((page) => page.page_type === "homepage")?.id ??
+        competitorPages[0]?.id ??
+        null,
+      result: analyzerV3.result,
+      oldAnalyzerSummary: {
+        outcomes,
+        scan_quality: scanQuality,
+      },
+    });
+
+    result.changesCreated += v3Persistence.changesCreated;
+
+    if (v3Persistence.error || v3ShadowError) {
+      errors.push(v3Persistence.error ?? v3ShadowError ?? "V3 persistence failed.");
+    }
+
     const competitorPendingNotifications = pendingNotifications.filter(
       (pending) => pending.competitorId === competitorId,
     );
@@ -1435,6 +1542,7 @@ export async function scanMonitoredPagesForUser(
         scrapes: competitorScrapes,
         outcomes,
         scanQuality,
+        analyzerV3Shadow: analyzerV3.debug,
       }),
       warnings: [...errors, ...scanQuality.warnings],
       errors,

@@ -1,0 +1,36 @@
+{
+  "randomized_cases": 54,
+  "fixed_counts": [
+    1,
+    2,
+    3,
+    5
+  ],
+  "contact_only": {
+    "accepted": 1,
+    "displayed": 1,
+    "status": "contact_sales"
+  },
+  "no_pricing": {
+    "accepted": 0,
+    "displayed": 0,
+    "status": "no_public_pricing"
+  },
+  "missing_name_displayed": 1,
+  "invariant_failure_blocked": true,
+  "overfit_hits": [],
+  "live_product_path_tests": {
+    "attempted": 0,
+    "passed": 0,
+    "status": "not_run_in_local_ci",
+    "reason": "The automated npm test enforces generalized invariants without mutating live customer data. Live 30-site product-path validation remains a promotion gate."
+  },
+  "production_storage_check": {
+    "v3_snapshots": 0,
+    "v3_shadow_rows": 0,
+    "legacy_quarantined_changes": 6,
+    "active_v3_changes": 0,
+    "active_legacy_visible_changes": 0
+  },
+  "promotion_ready": false
+}

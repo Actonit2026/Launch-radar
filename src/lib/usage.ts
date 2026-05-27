@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/database.types";
 import { isMasterAdminUser } from "@/lib/master-admin";
-import { planViewFromUser } from "@/lib/plans";
+import { planViewFromUser, type UserPlanView } from "@/lib/plans";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -188,7 +188,10 @@ async function sumMonthlyAiTokens(supabase: Supabase) {
   return (data ?? []).reduce((sum, row) => sum + (row.quantity ?? 0), 0);
 }
 
-export async function getPlanForUser(supabase: Supabase, userId: string) {
+export async function getPlanForUser(
+  supabase: Supabase,
+  userId: string,
+): Promise<UserPlanView> {
   const { data: profile, error } = await supabase
     .from("users")
     .select(

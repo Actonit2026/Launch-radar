@@ -67,6 +67,9 @@ async function runWeeklyDigest(request: Request) {
           .from("detected_changes")
           .select("diff_summary, severity, monitored_page_id, created_at")
           .in("monitored_page_id", pageIds)
+          .eq("analyzer_version", "v3")
+          .eq("status", "active")
+          .gte("confidence_score", 0.72)
           .gte("created_at", sevenDaysAgoIso())
           .order("created_at", { ascending: false })
       : { data: [] };
